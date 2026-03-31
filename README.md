@@ -48,6 +48,11 @@ uv run --active funasr-lite-web
 ```
 Open the local URL shown in terminal, upload/select an audio/video file, then download `.md` or `.txt`.
 
+Windows one-click launch from project root:
+```bat
+Start-FunASRWebUI.cmd
+```
+
 When speaker diarization is enabled, the download bundle also includes:
 - `*_speakers.md`
 - `*_speakers.json`
