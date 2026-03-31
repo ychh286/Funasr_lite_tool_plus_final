@@ -26,6 +26,8 @@ dist/
 
 # Tool artifacts
 /tools/outputs/
+/outputs/
+/secrets/
 
 # OS
 .DS_Store

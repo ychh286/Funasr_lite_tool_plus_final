@@ -551,14 +551,20 @@ source = { virtual = "." }
 dependencies = [
     { name = "funasr" },
     { name = "gradio" },
+    { name = "huggingface-hub" },
+    { name = "modelscope" },
     { name = "psutil" },
+    { name = "soundfile" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "funasr", specifier = ">=1.0.0" },
     { name = "gradio", specifier = ">=4.0.0" },
+    { name = "huggingface-hub", specifier = ">=0.30.0" },
+    { name = "modelscope", specifier = ">=1.20.0" },
     { name = "psutil", specifier = ">=5.9.0" },
+    { name = "soundfile", specifier = ">=0.13.0" },
 ]
 
 [[package]]

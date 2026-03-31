@@ -1,65 +1,142 @@
 # funasr-lite (CLI + WebGUI)
 
-A small local transcription utility built on FunASR.
+A local transcription utility built on FunASR, plus a project-local `yt-dlp -> ffmpeg -> transcript -> summary prompt` workflow layer.
 
 ## Prerequisites
 - Python >= 3.11
 - `ffmpeg` available in PATH
-- A working PyTorch installation (CPU or CUDA).  
+- A working PyTorch installation (CPU or CUDA)  
   Note: this project does **not** pin `torch` because GPU vs CPU wheels differ. Install the torch build you want first.
 
-## Install (uv recommended)
-```bash
-# inside this project folder
-uv sync
+## Install (Windows, recommended)
+Assume you are already in this project root and can see `pyproject.toml`.
+
+### 1. Create the virtual environment (Python 3.11)
+```powershell
+uv venv .venv -p 3.11
 ```
 
-If you do not have `uv`, you can use `pip`, but `uv` is recommended for reproducibility.
+### 2. Activate the virtual environment
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+### 3. Install Torch (GPU, cu128)
+```powershell
+uv pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu128
+```
+
+### 4. Install FunASR and common dependencies
+Without mirror:
+```powershell
+uv pip install -U funasr modelscope huggingface_hub soundfile gradio
+```
+
+With Tsinghua mirror:
+```powershell
+uv pip install -U funasr modelscope huggingface_hub soundfile gradio --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+### 5. Install this project into the environment
+```powershell
+uv pip install -e . --no-deps
+```
 
 ## Quick start: WebGUI
-```bash
-uv run funasr-lite-web
+```powershell
+uv run --active funasr-lite-web
 ```
 Open the local URL shown in terminal, upload/select an audio/video file, then download `.md` or `.txt`.
 
+When speaker diarization is enabled, the download bundle also includes:
+- `*_speakers.md`
+- `*_speakers.json`
+
+### Windows: one-click launch + Start Menu shortcut (recommended)
+After the environment is ready, run once:
+
+```bat
+scripts\install_startmenu_shortcut.bat
+```
+
+Then open **Start Menu** and run:
+
+- `funasr-lite` -> `funasr-lite WebUI`
+
+Notes:
+- The WebUI binds to `127.0.0.1:7860` by default and auto-opens the browser.
+- To stop the service, close the console window (or press Ctrl+C).
+- Optional overrides (no file edits): set environment variables `FUNASR_LITE_HOST` and/or `FUNASR_LITE_PORT`.
+
 Optional (advanced):
-```bash
+```powershell
 # Bind to all network interfaces (LAN access)
-uv run funasr-lite-web -- --host 0.0.0.0 --port 7860
+uv run --active funasr-lite-web -- --host 0.0.0.0 --port 7860
 
 # Create a Gradio public link (share=True)
-uv run funasr-lite-web -- --share
+uv run --active funasr-lite-web -- --share
 ```
 
 ## Quick start: CLI
-```bash
-uv run funasr-lite "path/to/audio.mp3" --format md --out-dir outputs
+```powershell
+.\Run-FunASR.ps1 "D:\path\to\audio.mp3" --format md --out .\outputs\sample.md
 ```
 
 Examples:
-```bash
+```powershell
 # Choose a scenario preset (affects defaults for language / VAD merge / chunk sizes)
-uv run funasr-lite "audio.mp3" --scenario cn_meeting
+.\Run-FunASR.ps1 "D:\audio.mp3" --scenario "中文会议/普通录音"
 
 # Enable punctuation model
-uv run funasr-lite "audio.mp3" --enable-punc --punc-preset punc-zh
+.\Run-FunASR.ps1 "D:\audio.mp3" --punc "damo/punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
+
+# Enable speaker diarization (V1)
+.\Run-FunASR.ps1 "D:\audio.mp3" --speaker-diarization --device cpu --out .\outputs\sample.md
 ```
+
+## Quick start: Pipeline
+The project-local pipeline wraps `yt-dlp`, `ffmpeg`, `transcribe_local.py`, transcript cleaning, and optional prompt selection.
+
+```powershell
+.\Run-FunASRPipeline.ps1 "D:\recordings\meeting.mp3" --tag "#组会"
+```
+
+```powershell
+.\Run-FunASRPipeline.ps1 "https://www.youtube.com/watch?v=..." --tag "#技术"
+```
+
+```powershell
+# Enable speaker diarization in the project-local pipeline
+.\Run-FunASRPipeline.ps1 "D:\recordings\meeting.mp3" --speaker-diarization --speaker-count 0
+```
+
+Outputs go to `.\outputs\transcripts\<timestamp>\`:
+- `audio.wav`
+- `transcript.md`
+- `transcript.txt`
+- `transcript_speakers.md` when speaker diarization is enabled
+- `transcript_speakers.json` when speaker diarization is enabled
+- `summary_prompt.md` when a matching prompt template is resolved
+
+The preferred cookies location for `yt-dlp` is `.\secrets\cookies\all_cookies.txt`.
+If it is missing, the pipeline falls back to `%USERPROFILE%\.openclaw\secrets\cookies\all_cookies.txt` and `~/.openclaw/secrets/cookies/all_cookies.txt`.
 
 ## Diagnostics script (optional)
 If you want detailed timing / GPU memory / cache hints:
-```bash
+```powershell
 uv run python tools/asr_test2_print.py
 ```
 
 ## Notes
 - First run may download model weights into user cache (ModelScope / HuggingFace caches).
+- Speaker diarization V1 automatically switches to a timestamp-capable Paraformer model plus `ct-punc-c` and `cam++`.
+- V1 is aimed at single-channel recordings where speakers mostly take turns. Heavy overlap is still a known weak spot.
 - If you hit OOM, try lowering:
   - `--batch-size-s` (e.g., 10 -> 5)
   - `--max-single-segment-ms` (e.g., 30000 -> 15000)
 
-
-## torch模型
+## Torch model
 damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch
 
-## punc模型
+## Punctuation model
 damo/punc_ct-transformer_zh-cn-common-vocab272727-pytorch

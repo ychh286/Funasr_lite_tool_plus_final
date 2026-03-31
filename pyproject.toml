@@ -7,8 +7,11 @@ requires-python = ">=3.11"
 dependencies = [
   "funasr>=1.0.0",
   "gradio>=4.0.0",
+  "huggingface_hub>=0.30.0",
+  "modelscope>=1.20.0",
   # Optional but recommended for process memory (RSS) observability:
   "psutil>=5.9.0",
+  "soundfile>=0.13.0",
 ]
 
 [project.scripts]
