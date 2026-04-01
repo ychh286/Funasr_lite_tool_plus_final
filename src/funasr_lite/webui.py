@@ -346,7 +346,7 @@ def _topbar_html() -> str:
       </div>
       <div class="status-pills">
         <div class="status-pill"><strong>Local & Privacy</strong>&nbsp; 纯本地推理架构</div>
-        <div class="status-pill"><strong>Speaker Engine</strong>&nbsp; Paraformer \+ CAM\+\+</div>
+        <div class="status-pill"><strong>Speaker Engine</strong>&nbsp; Paraformer + CAM++</div>
         <div class="status-pill"><strong>Batch Process</strong>&nbsp; 多端媒体流并发处理</div>
       </div>
     </div>
@@ -363,8 +363,8 @@ def _hero_html() -> str:
       </div>
       <div class="hero-chips">
         <div class="chip"><strong>输入源支持</strong>&nbsp; wav / mp3 / mp4 等音视频容器</div>
-        <div class="chip"><strong>交付产物</strong>&nbsp; 逐字稿 \+ 扬声器数据边车 (Sidecars)</div>
-        <div class="chip"><strong>计算效能</strong>&nbsp; CPU \+ CUDA 异构加速计算</div>
+        <div class="chip"><strong>交付产物</strong>&nbsp; 逐字稿 + 扬声器数据边车 (Sidecars)</div>
+        <div class="chip"><strong>计算效能</strong>&nbsp; CPU + CUDA 异构加速计算</div>
       </div>
     </div>
     """
@@ -634,172 +634,63 @@ def main() -> None:
                         )
                     )
 
-            gr.HTML(
-                _section_banner_html(
-                    "Mission Setup",
-                    "Configure the run surface",
-                    "上传文件、选择推理模式和输出策略。界面分为输入输出、模型后端、运行时控制与结果面板，尽量把常用设置收敛在一屏内。",
-                )
-            )
-
-            with gr.Row(equal_height=False, elem_classes=["form-row"]):
-                with gr.Column(scale=6, elem_classes=["glass-card", "tech-panel"]):
-                    gr.Markdown(
-                        "### 输入源与产物格式\n"
-                        "选择输入媒体与导出格式。默认保留最适合构建下游大语言模型摘要工作流的 Markdown 格式。"
-                    )
-                    files = gr.Files(
-                        label="Audio / Video files",
-                        file_types=["audio", "video"],
-                    )
-                    with gr.Row():
-                        scenario = gr.Dropdown(
-                            choices=scenario_names,
-                            value=DEFAULT_SCENARIO,
-                            label="Scenario preset",
-                        )
-                        out_fmt = gr.Radio(["md", "txt"], value="md", label="Output format")
-                    split_lines = gr.Checkbox(
-                        label="Split transcript lines by punctuation",
-                        value=False,
-                    )
-
-                with gr.Column(scale=6, elem_classes=["glass-card", "tech-panel"]):
-                    gr.Markdown(
-                        "### 模型基座与后端引擎\n"
-                        "配置主转写模型、VAD 断句引擎及标点预测后端。输入自定义模型 ID 将自动覆盖默认参数。"
-                    )
-                    model_preset = gr.Dropdown(
-                        choices=model_preset_keys,
-                        value="iic/SenseVoiceSmall",
-                        label="Model preset",
-                    )
-                    model_custom = gr.Textbox(
-                        label="Custom model id",
-                        placeholder="Optional. Overrides preset if provided.",
-                    )
-                    with gr.Row():
-                        vad_preset = gr.Dropdown(
-                            choices=vad_preset_keys,
-                            value="fsmn-vad",
-                            label="VAD preset",
-                        )
-                        punc_preset = gr.Dropdown(
-                            choices=punc_preset_keys,
-                            value="none",
-                            label="Punctuation preset",
-                        )
-                    vad_custom = gr.Textbox(
-                        label="Custom VAD model id",
-                        placeholder="Optional. Overrides preset if provided.",
-                    )
-                    punc_custom = gr.Textbox(
-                        label="Custom punctuation model id",
-                        placeholder="Optional. Overrides preset if provided.",
-                    )
-
-            with gr.Row(equal_height=False, elem_classes=["form-row"]):
-                with gr.Column(scale=6, elem_classes=["glass-card", "tech-panel"]):
-                    gr.Markdown(
-                        "### 运行时与解码单元\n"
-                        "指定语言、计算设备及流式分段参数。为确保逻辑闭环，说话人声纹特征提取（Speaker Diarization）选项亦配置于此。"
-                    )
-                    with gr.Row():
-                        language = gr.Dropdown(
-                            ["auto", "zh", "en", "ja", "ko"],
-                            value="auto",
-                            label="Language",
-                        )
-                        device = gr.Dropdown(
-                            ["auto", "cuda:0", "cpu"],
-                            value="auto",
-                            label="Device",
-                        )
-                    with gr.Row():
-                        use_itn = gr.Checkbox(label="Use ITN", value=True)
-                        merge_vad = gr.Checkbox(label="Merge VAD segments", value=True)
+            with gr.Row(equal_height=False, elem_classes=["dashboard-layout"]):
+                # --- LEFT SIDEBAR (Config & Action) ---
+                with gr.Column(scale=3, elem_classes=["sidebar-panel"]):
+                    with gr.Column(elem_classes=["glass-card", "tech-panel"]):
+                        gr.Markdown("### 模型基座与后端引擎\n配置主转写模型、VAD 断句引擎及标点预测后端。输入自定义模型 ID 将自动覆盖默认参数。")
+                        model_preset = gr.Dropdown(choices=model_preset_keys, value="iic/SenseVoiceSmall", label="Model preset")
+                        model_custom = gr.Textbox(label="Custom model id", placeholder="Optional. Overrides preset if provided.")
+                        vad_preset = gr.Dropdown(choices=vad_preset_keys, value="fsmn-vad", label="VAD preset")
+                        punc_preset = gr.Dropdown(choices=punc_preset_keys, value="none", label="Punctuation preset")
+                        vad_custom = gr.Textbox(label="Custom VAD model id", placeholder="Optional.")
+                        punc_custom = gr.Textbox(label="Custom punctuation model id", placeholder="Optional.")
+                    
+                    with gr.Column(elem_classes=["glass-card", "tech-panel"]):
+                        gr.Markdown("### 运行时与解码单元\n指定语言、设备和分段参数。说话人声纹特征提取选（Speaker Diarization）亦配置于此。")
+                        language = gr.Dropdown(["auto", "zh", "en", "ja", "ko"], value="auto", label="Language")
+                        device = gr.Dropdown(["auto", "cuda:0", "cpu"], value="auto", label="Device")
+                        with gr.Row():
+                            use_itn = gr.Checkbox(label="Use ITN", value=True)
+                            merge_vad = gr.Checkbox(label="Merge VAD segments", value=True)
                         verbose = gr.Checkbox(label="Verbose meta", value=False)
-                    speaker_diarization = gr.Checkbox(
-                        label="Enable speaker diarization (V1)",
-                        value=False,
-                    )
-                    speaker_count = gr.Slider(
-                        0,
-                        10,
-                        value=0,
-                        step=1,
-                        label="Known speaker count (0 = auto cluster)",
-                    )
-                    batch_size_s = gr.Slider(1, 60, value=10, step=1, label="batch_size_s (seconds)")
-                    max_single_segment_ms = gr.Slider(
-                        5000,
-                        120000,
-                        value=30000,
-                        step=1000,
-                        label="max_single_segment_time (ms)",
-                    )
-                    merge_length_s = gr.Slider(
-                        1,
-                        60,
-                        value=15,
-                        step=1,
-                        label="merge_length_s (seconds)",
-                    )
+                        speaker_diarization = gr.Checkbox(label="Enable speaker diarization (V1)", value=False)
+                        speaker_count = gr.Slider(0, 10, value=0, step=1, label="Known speaker count (0 = auto cluster)")
+                        batch_size_s = gr.Slider(1, 60, value=10, step=1, label="batch_size_s (seconds)")
+                        max_single_segment_ms = gr.Slider(5000, 120000, value=30000, step=1000, label="max_single_segment_time (ms)")
+                        merge_length_s = gr.Slider(1, 60, value=15, step=1, label="merge_length_s (seconds)")
 
-                with gr.Column(scale=6, elem_classes=["glass-card"]):
-                    gr.Markdown(
-                        "### 最佳实践指南\n"
-                        "声纹分离（Speaker Diarization V1）专为会议、对谈场景设计。若所处声学环境存在严重多人同重叠堆叠或复杂混响，可能导致局部话语边界解析下降。"
-                    )
-                    gr.HTML(
-                        _metric_card_html(
-                            "Best for",
-                            "Meetings",
-                            "轮流发言、录音相对干净的素材，最容易稳定得到可总结的 speaker transcript。",
-                        )
-                    )
-                    gr.HTML(
-                        _metric_card_html(
-                            "Fallback",
-                            "Plain ASR",
-                            "不开启说话人模式时，仍走普通转写链路，适合快速粗转或单人音频。",
-                        )
-                    )
+                    with gr.Column(elem_classes=["glass-card", "action-bar", "execute-panel"]):
+                        gr.Markdown("### 触发工作流")
+                        gr.HTML('<div class="action-copy" style="margin-bottom: 16px;">系统将在完成转写与声纹聚类后，自动打包产物结构至下载区。</div>')
+                        start_btn = gr.Button("开始提取 (Start)", variant="primary", size="lg")
+                        
+                # --- RIGHT MAIN CANVAS (Input & Output) ---
+                with gr.Column(scale=9, elem_classes=["main-canvas"]):
+                    with gr.Column(elem_classes=["glass-card", "tech-panel"]):
+                        gr.Markdown("### 输入源与产物格式\n选择输入媒体与导出格式。默认保留最适合构建下游大语言模型摘要工作流的 Markdown 格式。")
+                        with gr.Row():
+                            with gr.Column(scale=8):
+                                files = gr.Files(label="Audio / Video files", file_types=["audio", "video"])
+                            with gr.Column(scale=4):
+                                scenario = gr.Dropdown(choices=scenario_names, value=DEFAULT_SCENARIO, label="Scenario preset")
+                                out_fmt = gr.Radio(["md", "txt"], value="md", label="Output format")
+                                split_lines = gr.Checkbox(label="Split transcript lines by punctuation", value=False)
+                                
+                                gr.HTML("<div style='margin-top:20px'></div>")
+                                gr.Markdown("**最佳实践指南**\n声纹分离（Speaker Diarization V1）专为会议、对谈场景设计。若所处声学环境存在严重多人同重叠堆叠或复杂混响，可能导致局部话语边界解析下降。")
+                    
+                    gr.HTML(_section_banner_html("Results", "转写日志与交付产物", "所有转写产物（包含扬声器边车信息）将在此供即时核对。"))
 
-            with gr.Row(elem_classes=["glass-card", "action-bar"]):
-                with gr.Column(scale=7):
-                    gr.Markdown("### Execute")
-                    gr.HTML(
-                        '<div class="action-copy">点击执行批处理工作流。系统将在完成转写与声纹聚类后，自动打包产物结构至下载区，供后续业务长链条调用。</div>'
-                    )
-                with gr.Column(scale=3, min_width=220):
-                    start_btn = gr.Button("Start transcription", variant="primary", size="lg")
+                    with gr.Column(elem_classes=["glass-card", "tech-panel", "results-panel"]):
+                        with gr.Tabs():
+                            with gr.TabItem("转写预览"):
+                                preview = gr.Textbox(lines=28, interactive=False, label="Transcript Preview")
+                            with gr.TabItem("产物打包下载"):
+                                download = gr.File(label="Generated file or zip bundle")
+                            with gr.TabItem("底层运行时元数据"):
+                                meta = gr.JSON(label="timings / memory / model selection")
 
-            gr.HTML(
-                _section_banner_html(
-                    "Results",
-                    "检视实时转写日志与交付产物",
-                    "左侧用于快速查看转写结果，右侧保留下载与元数据。这样既方便直接复制内容，也方便排查推理配置和资源占用。",
-                )
-            )
-
-            with gr.Row(equal_height=False, elem_classes=["results-grid"]):
-                with gr.Column(elem_classes=["result-stack"]):
-                    with gr.Column(elem_classes=["result-card", "tech-panel"]):
-                        gr.Markdown("### Transcript Preview")
-                        preview = gr.Textbox(
-                            lines=22,
-                            interactive=False,
-                            label="Preview",
-                        )
-                    with gr.Column(elem_classes=["download-card", "tech-panel"]):
-                        gr.Markdown("### Download Artifacts")
-                        download = gr.File(label="Generated file or zip bundle")
-
-                with gr.Column(elem_classes=["result-stack"]):
-                    with gr.Column(elem_classes=["result-card", "tech-panel"]):
-                        gr.Markdown("### Runtime Meta")
-                        meta = gr.JSON(label="timings / memory / model selection")
 
         def _on_scenario_change(name: str):
             bs, ms, ml, lang, itn, mv = _apply_scenario_defaults(name)
