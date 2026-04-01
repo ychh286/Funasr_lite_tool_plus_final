@@ -247,36 +247,12 @@ body,
 .form-row { gap: 24px !important; }
 
 /* Overriding Gradio Core Elements */
-.gradio-container * {
-  border-radius: 8px !important;
-}
-
 .tech-panel label, 
 .tech-panel .block-label {
   color: #e4e4e7 !important;
   font-weight: 500 !important;
   font-size: 0.85rem !important;
   margin-bottom: 6px !important;
-}
-
-.tech-panel input,
-.tech-panel textarea,
-.tech-panel .wrap,
-.tech-panel .dropdown,
-.tech-panel .gr-box,
-.tech-panel .cm-editor {
-  background: rgba(255, 255, 255, 0.04) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  color: #fff !important;
-  transition: border-color 0.2s, background 0.2s;
-  box-shadow: none !important;
-}
-
-.tech-panel input:focus,
-.tech-panel textarea:focus,
-.tech-panel .wrap.focus {
-  border-color: rgba(255, 255, 255, 0.3) !important;
-  background: rgba(255, 255, 255, 0.07) !important;
 }
 
 .gradio-container .gr-button-primary,
@@ -320,6 +296,9 @@ body,
 .result-card, .download-card { padding: 24px; }
 .results-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.8fr); gap: 24px; align-items: start; }
 .result-stack { display: grid; gap: 24px; }
+.dashboard-layout { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 24px; align-items: start; }
+.sidebar-panel, .main-canvas, .results-panel { min-width: 0; }
+.glass-card, .result-card, .download-card, .metric-card { overflow: visible; }
 
 /* Scrollbars */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -328,7 +307,7 @@ body,
 ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
 
 @media (max-width: 1024px) {
-  .hero-grid, .results-grid { grid-template-columns: 1fr; }
+  .hero-grid, .results-grid, .dashboard-layout { grid-template-columns: 1fr; }
   .gradio-container { padding: 20px 16px 40px !important; }
 }
 '''
@@ -639,7 +618,11 @@ def main() -> None:
                 with gr.Column(scale=3, elem_classes=["sidebar-panel"]):
                     with gr.Column(elem_classes=["glass-card", "tech-panel"]):
                         gr.Markdown("### 模型基座与后端引擎\n配置主转写模型、VAD 断句引擎及标点预测后端。输入自定义模型 ID 将自动覆盖默认参数。")
-                        model_preset = gr.Dropdown(choices=model_preset_keys, value="iic/SenseVoiceSmall", label="Model preset")
+                        model_preset = gr.Dropdown(
+                            choices=model_preset_keys,
+                            value="paraformer-zh (offline)",
+                            label="Model preset",
+                        )
                         model_custom = gr.Textbox(label="Custom model id", placeholder="Optional. Overrides preset if provided.")
                         vad_preset = gr.Dropdown(choices=vad_preset_keys, value="fsmn-vad", label="VAD preset")
                         punc_preset = gr.Dropdown(choices=punc_preset_keys, value="none", label="Punctuation preset")
@@ -707,6 +690,26 @@ def main() -> None:
             _on_scenario_change,
             inputs=[scenario],
             outputs=[batch_size_s, max_single_segment_ms, merge_length_s, language, use_itn, merge_vad],
+        )
+
+        def _on_speaker_toggle(enabled: bool, current_model: str, current_punc: str):
+            if enabled:
+                target_model = (
+                    current_model
+                    if current_model == "paraformer-zh (speaker diarization)"
+                    else "paraformer-zh (speaker diarization)"
+                )
+                target_punc = current_punc if current_punc != "none" else "ct-punc-c"
+                return gr.update(value=target_model), gr.update(value=target_punc)
+
+            if current_model == "paraformer-zh (speaker diarization)":
+                return gr.update(value="paraformer-zh (offline)"), gr.update()
+            return gr.update(), gr.update()
+
+        speaker_diarization.change(
+            _on_speaker_toggle,
+            inputs=[speaker_diarization, model_preset, punc_preset],
+            outputs=[model_preset, punc_preset],
         )
 
         start_btn.click(

@@ -96,7 +96,8 @@ Examples:
 .\Run-FunASR.ps1 "D:\audio.mp3" --punc "damo/punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
 
 # Enable speaker diarization (V1)
-.\Run-FunASR.ps1 "D:\audio.mp3" --speaker-diarization --device cpu --out .\outputs\sample.md
+# `--device auto` is the default and is usually the right choice.
+.\Run-FunASR.ps1 "D:\audio.mp3" --speaker-diarization --device auto --out .\outputs\sample.md
 ```
 
 ## Quick start: Pipeline
