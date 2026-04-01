@@ -37,65 +37,43 @@ from .formatting import postprocess_text, split_lines_by_punct
 from .save import render_speaker_content, save_json, save_speaker_text, save_text
 
 
-TECH_CSS = """
+TECH_CSS = '''
 :root {
-  --bg: #07111f;
-  --bg-soft: #0b1b31;
-  --panel: rgba(8, 22, 40, 0.78);
-  --panel-strong: rgba(10, 28, 49, 0.92);
-  --panel-border: rgba(112, 201, 255, 0.18);
-  --text: #e9f5ff;
-  --muted: #8aa5bf;
-  --accent: #51e3ff;
-  --accent-2: #4dd6a8;
-  --accent-3: #86a8ff;
-  --danger: #ff7f98;
-  --shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  --background: #000000;
+  --foreground: #ffffff;
+  --muted: #a1a1aa;
+  --accent: #fff;
+  --panel: rgba(18, 18, 20, 0.75);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --shadow-sm: 0 4px 14px 0 rgba(0, 0, 0, 0.39);
+  --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.5);
+  --brand-glow: radial-gradient(circle at 50% -20%, rgba(255, 255, 255, 0.08), transparent 60%);
+  --grad-text: linear-gradient(180deg, #fff 0%, #a1a1aa 100%);
 }
 
 body,
 .gradio-container {
-  background:
-    radial-gradient(circle at top left, rgba(77, 214, 168, 0.12), transparent 30%),
-    radial-gradient(circle at top right, rgba(81, 227, 255, 0.16), transparent 32%),
-    linear-gradient(180deg, #06111e 0%, #081624 45%, #07111f 100%);
-  color: var(--text);
-  font-family: "Segoe UI Variable Display", "Bahnschrift", "Microsoft YaHei UI", "Noto Sans SC", sans-serif;
+  background: var(--background) !important;
+  color: var(--foreground) !important;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Microsoft YaHei UI", sans-serif !important;
+  -webkit-font-smoothing: antialiased;
 }
 
 .gradio-container {
-  max-width: 1480px !important;
-  padding: 28px 24px 48px !important;
+  max-width: 1560px !important;
+  margin: 0 auto !important;
+  padding: 40px 32px 80px !important;
 }
 
-.app-shell {
-  position: relative;
-}
-
-.app-shell::before,
-.app-shell::after {
+/* Base shell & nice top background glow */
+.app-shell::before {
   content: "";
-  position: fixed;
-  inset: auto;
-  width: 440px;
-  height: 440px;
-  border-radius: 999px;
-  filter: blur(80px);
-  opacity: 0.22;
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 600px;
+  background: var(--brand-glow);
   pointer-events: none;
   z-index: 0;
-}
-
-.app-shell::before {
-  top: -140px;
-  left: -120px;
-  background: rgba(81, 227, 255, 0.45);
-}
-
-.app-shell::after {
-  right: -100px;
-  bottom: -140px;
-  background: rgba(77, 214, 168, 0.30);
 }
 
 .topbar,
@@ -106,20 +84,22 @@ body,
 .download-card {
   position: relative;
   z-index: 1;
-  backdrop-filter: blur(18px);
-  background: linear-gradient(180deg, rgba(9, 25, 44, 0.9), rgba(6, 17, 31, 0.82));
+  background: var(--panel);
   border: 1px solid var(--panel-border);
-  border-radius: 26px;
-  box-shadow: var(--shadow);
+  border-radius: 16px;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 24px;
-  padding: 18px 24px;
-  margin-bottom: 20px;
+  padding: 20px 28px;
+  margin-bottom: 32px;
+  border-radius: 16px;
 }
 
 .brand-lockup {
@@ -129,22 +109,23 @@ body,
 }
 
 .brand-badge {
-  width: 56px;
-  height: 56px;
-  border-radius: 18px;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
   display: grid;
   place-items: center;
-  color: #02111d;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 18px 40px rgba(77, 214, 168, 0.24);
+  background: #ffffff;
+  color: #000000;
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.1), 0 8px 16px rgba(255,255,255,0.15);
 }
 
 .brand-title {
-  font-size: 1.55rem;
-  font-weight: 760;
-  line-height: 1.1;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .brand-subtitle,
@@ -152,314 +133,221 @@ body,
 .metric-label,
 .section-kicker {
   color: var(--muted);
-  letter-spacing: 0.14em;
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
 .brand-subtitle {
   margin-top: 4px;
-  font-size: 0.83rem;
 }
 
-.status-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+.status-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.status-pill, .chip {
+  padding: 6px 14px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #d4d4d8;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  backdrop-filter: blur(8px);
 }
 
-.status-pill,
-.chip {
-  padding: 10px 16px;
-  border-radius: 999px;
-  font-size: 0.92rem;
-  color: #d7ecff;
-  border: 1px solid rgba(127, 203, 255, 0.15);
-  background: rgba(12, 33, 57, 0.7);
-}
-
-.status-pill strong,
-.chip strong {
-  color: #ffffff;
-}
-
-.hero-grid,
-.results-grid {
-  display: grid;
-  gap: 20px;
-}
+.status-pill strong, .chip strong { color: #fff; font-weight: 600; }
 
 .hero-grid {
-  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.85fr);
-  margin-bottom: 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.8fr);
+  gap: 24px;
+  margin-bottom: 40px;
 }
 
 .hero-panel {
-  padding: 34px 34px 28px;
-  overflow: hidden;
-}
-
-.hero-panel::before {
-  content: "";
-  position: absolute;
-  inset: -10% auto auto 48%;
-  width: 420px;
-  height: 420px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(81, 227, 255, 0.18), transparent 60%);
-  pointer-events: none;
+  padding: 48px 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .hero-title {
-  margin: 10px 0 14px;
-  max-width: 9.2em;
-  font-size: clamp(2.7rem, 5vw, 4.6rem);
-  line-height: 0.96;
-  font-weight: 820;
+  margin: 16px 0;
+  font-size: clamp(2.5rem, 4vw, 3.5rem);
+  font-weight: 700;
   letter-spacing: -0.04em;
+  line-height: 1.1;
+  background: var(--grad-text);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .hero-copy {
-  max-width: 780px;
-  color: #c7dff6;
-  font-size: 1.06rem;
-  line-height: 1.8;
+  color: #d4d4d8;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  max-width: 600px;
 }
 
 .hero-chips {
+  margin-top: 32px;
   display: flex;
-  flex-wrap: wrap;
   gap: 12px;
-  margin-top: 24px;
+  flex-wrap: wrap;
 }
 
 .hero-aside {
   display: grid;
-  gap: 18px;
+  gap: 16px;
 }
 
 .metric-card {
-  padding: 22px 24px;
+  padding: 24px;
 }
+.metric-card:hover { border-color: rgba(255,255,255,0.2); }
 
 .metric-value {
-  margin-top: 10px;
-  font-size: 1.85rem;
-  font-weight: 780;
-  letter-spacing: -0.03em;
+  margin-top: 8px;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .metric-note {
-  margin-top: 8px;
-  color: #c1d5e8;
-  font-size: 0.95rem;
-  line-height: 1.6;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
 }
 
 .section-banner {
-  margin: 0 0 16px;
-  padding: 0 4px;
-}
-
-.section-kicker {
-  font-size: 0.8rem;
-  margin-bottom: 8px;
+  margin: 48px 0 24px 8px;
 }
 
 .section-title {
-  font-size: 1.65rem;
-  font-weight: 760;
+  font-size: 1.5rem;
+  font-weight: 600;
   letter-spacing: -0.03em;
+  margin-top: 4px;
 }
 
 .section-copy {
   margin-top: 8px;
-  color: #9fb9d1;
-  line-height: 1.75;
-}
-
-.glass-card {
-  padding: 20px 20px 18px;
-}
-
-.glass-card > .gradio-markdown,
-.result-card > .gradio-markdown {
-  margin-bottom: 10px;
-}
-
-.card-title h3,
-.card-title h2,
-.card-title p {
-  margin: 0;
-}
-
-.card-title h3 {
-  font-size: 1.2rem;
-  font-weight: 730;
-}
-
-.card-title p {
-  margin-top: 8px;
   color: var(--muted);
-  line-height: 1.65;
+  font-size: 0.95rem;
 }
 
-.form-row {
-  gap: 18px !important;
+.glass-card { padding: 28px 32px; }
+
+.glass-card > .gradio-markdown { margin-bottom: 24px; }
+.glass-card > .gradio-markdown h3 { font-size: 1.25rem; font-weight: 600; margin: 0 0 8px 0; letter-spacing: -0.01em;}
+.glass-card > .gradio-markdown p { color: var(--muted); font-size: 0.9rem; margin: 0;}
+
+.form-row { gap: 24px !important; }
+
+/* Overriding Gradio Core Elements */
+.gradio-container * {
+  border-radius: 8px !important;
 }
 
-.action-bar {
-  margin: 18px 0 20px;
-  padding: 18px 22px;
+.tech-panel label, 
+.tech-panel .block-label {
+  color: #e4e4e7 !important;
+  font-weight: 500 !important;
+  font-size: 0.85rem !important;
+  margin-bottom: 6px !important;
 }
 
-.action-copy {
-  color: #9fb7cf;
-  line-height: 1.7;
-}
-
-.result-card,
-.download-card {
-  padding: 22px 22px 18px;
-}
-
-.results-grid {
-  grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.85fr);
-  align-items: start;
-}
-
-.result-stack {
-  display: grid;
-  gap: 20px;
-}
-
+.tech-panel input,
 .tech-panel textarea,
-.tech-panel pre,
-.tech-panel .cm-editor,
-.tech-panel .cm-scroller,
 .tech-panel .wrap,
-.tech-panel .message-wrap,
-.tech-panel .scroll-hide {
-  background: rgba(6, 17, 31, 0.6) !important;
-  color: #ecf8ff !important;
+.tech-panel .dropdown,
+.tech-panel .gr-box,
+.tech-panel .cm-editor {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #fff !important;
+  transition: border-color 0.2s, background 0.2s;
+  box-shadow: none !important;
 }
 
-.tech-panel textarea,
-.tech-panel .cm-editor,
-.tech-panel .json-container {
-  border-radius: 18px !important;
-  border: 1px solid rgba(107, 190, 255, 0.18) !important;
-}
-
-.tech-panel label,
-.tech-panel .block-label,
-.tech-panel .wrap label {
-  color: #d7ecff !important;
-  font-weight: 630 !important;
+.tech-panel input:focus,
+.tech-panel textarea:focus,
+.tech-panel .wrap.focus {
+  border-color: rgba(255, 255, 255, 0.3) !important;
+  background: rgba(255, 255, 255, 0.07) !important;
 }
 
 .gradio-container .gr-button-primary,
 .gradio-container button.primary {
-  background: linear-gradient(135deg, #56e0ff, #54ddb3) !important;
-  color: #03111c !important;
+  background: #ffffff !important;
+  color: #000000 !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
   border: none !important;
-  box-shadow: 0 16px 40px rgba(81, 227, 255, 0.28);
+  box-shadow: 0 4px 14px rgba(255,255,255,0.2) !important;
+  transition: all 0.2s ease !important;
 }
 
-.gradio-container button:not(.primary),
-.gradio-container .gr-button-secondary {
-  background: rgba(12, 33, 57, 0.74) !important;
-  color: #dcefff !important;
-  border: 1px solid rgba(111, 189, 255, 0.16) !important;
+.gradio-container .gr-button-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(255,255,255,0.3) !important;
 }
 
-.gradio-container input,
-.gradio-container textarea,
-.gradio-container .wrap,
-.gradio-container .message,
-.gradio-container .container,
-.gradio-container .form,
-.gradio-container .dropdown,
-.gradio-container .gr-box,
-.gradio-container .gradio-dropdown,
-.gradio-container .gradio-slider {
-  border-color: rgba(111, 189, 255, 0.16) !important;
+.gradio-container .gr-button-secondary,
+.gradio-container button:not(.primary) {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #fff !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  font-weight: 500 !important;
+}
+.gradio-container .gr-button-secondary:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
 }
 
-.gradio-container input,
-.gradio-container textarea,
-.gradio-container .wrap,
-.gradio-container .gr-box,
-.gradio-container .gradio-dropdown {
-  background: rgba(10, 25, 44, 0.82) !important;
-  color: #eff8ff !important;
+.action-bar {
+  margin: 32px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.action-bar .action-copy {
+  color: var(--muted);
+  font-size: 0.95rem;
 }
 
-.gradio-container .gr-file,
-.gradio-container .gr-files {
-  border-radius: 20px !important;
+.result-card, .download-card { padding: 24px; }
+.results-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.8fr); gap: 24px; align-items: start; }
+.result-stack { display: grid; gap: 24px; }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
+
+@media (max-width: 1024px) {
+  .hero-grid, .results-grid { grid-template-columns: 1fr; }
+  .gradio-container { padding: 20px 16px 40px !important; }
 }
-
-.gradio-container .gr-accordion,
-.gradio-container .gr-panel,
-.gradio-container .gr-box {
-  box-shadow: none !important;
-}
-
-@media (max-width: 1120px) {
-  .hero-grid,
-  .results-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .hero-title {
-    max-width: none;
-  }
-}
-
-@media (max-width: 760px) {
-  .gradio-container {
-    padding: 18px 14px 32px !important;
-  }
-
-  .topbar,
-  .hero-panel,
-  .glass-card,
-  .result-card,
-  .metric-card,
-  .download-card {
-    border-radius: 22px;
-  }
-
-  .topbar {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .hero-panel {
-    padding: 26px 22px 22px;
-  }
-
-  .hero-title {
-    font-size: 2.4rem;
-  }
-}
-"""
+'''
 
 
 def _topbar_html() -> str:
     return """
     <div class="topbar">
       <div class="brand-lockup">
-        <div class="brand-badge">FX</div>
+        <div class="brand-badge">FA</div>
         <div>
-          <div class="brand-title">FunASR Lite Console</div>
-          <div class="brand-subtitle">Local transcription, diarization, and export workflow</div>
+          <div class="brand-title">FunASR Pro Console</div>
+          <div class="brand-subtitle">高性能本地化智能语音转写与说话人区分工作流引擎</div>
         </div>
       </div>
       <div class="status-pills">
-        <div class="status-pill"><strong>Local-first</strong>&nbsp; No cloud dependency</div>
-        <div class="status-pill"><strong>Speaker V1</strong>&nbsp; Paraformer + CAM++</div>
-        <div class="status-pill"><strong>Batch</strong>&nbsp; Audio / video in one run</div>
+        <div class="status-pill"><strong>Local & Privacy</strong>&nbsp; 纯本地推理架构</div>
+        <div class="status-pill"><strong>Speaker Engine</strong>&nbsp; Paraformer \+ CAM\+\+</div>
+        <div class="status-pill"><strong>Batch Process</strong>&nbsp; 多端媒体流并发处理</div>
       </div>
     </div>
     """
@@ -468,16 +356,15 @@ def _topbar_html() -> str:
 def _hero_html() -> str:
     return """
     <div class="hero-panel">
-      <div class="eyebrow">Control Surface</div>
-      <div class="hero-title">Transcribe, separate, export.</div>
+      <div class="eyebrow">Workspace</div>
+      <div class="hero-title">高精转写，<br/>智能分离与导出。</div>
       <div class="hero-copy">
-        为本地音频与视频转写设计的控制台。当前版本支持多文件转写、说话人区分 V1、
-        Markdown / TXT 导出，以及适合后续大模型总结的结构化产物输出。
+        专为离线生产力打造的音视频媒体处理中心。支持多文件极速批处理、高精说话人聚类过滤（Speaker Diarization V1），并自动生成清晰的 Markdown 面包屑数据，无缝对接大语言模型下游摘要工作流。
       </div>
       <div class="hero-chips">
-        <div class="chip"><strong>Input</strong>&nbsp; wav / mp3 / mp4 / more</div>
-        <div class="chip"><strong>Output</strong>&nbsp; transcript + speaker sidecars</div>
-        <div class="chip"><strong>Runtime</strong>&nbsp; CPU or CUDA</div>
+        <div class="chip"><strong>输入源支持</strong>&nbsp; wav / mp3 / mp4 等音视频容器</div>
+        <div class="chip"><strong>交付产物</strong>&nbsp; 逐字稿 \+ 扬声器数据边车 (Sidecars)</div>
+        <div class="chip"><strong>计算效能</strong>&nbsp; CPU \+ CUDA 异构加速计算</div>
       </div>
     </div>
     """
@@ -758,8 +645,8 @@ def main() -> None:
             with gr.Row(equal_height=False, elem_classes=["form-row"]):
                 with gr.Column(scale=6, elem_classes=["glass-card", "tech-panel"]):
                     gr.Markdown(
-                        "### Ingest & Output\n"
-                        "选择输入文件和导出格式。默认保留最适合后续总结的 Markdown 输出。"
+                        "### 输入源与产物格式\n"
+                        "选择输入媒体与导出格式。默认保留最适合构建下游大语言模型摘要工作流的 Markdown 格式。"
                     )
                     files = gr.Files(
                         label="Audio / Video files",
@@ -779,8 +666,8 @@ def main() -> None:
 
                 with gr.Column(scale=6, elem_classes=["glass-card", "tech-panel"]):
                     gr.Markdown(
-                        "### Model Backbone\n"
-                        "主模型、VAD 和标点后端。自定义 ID 一旦填写，就会覆盖预设值。"
+                        "### 模型基座与后端引擎\n"
+                        "配置主转写模型、VAD 断句引擎及标点预测后端。输入自定义模型 ID 将自动覆盖默认参数。"
                     )
                     model_preset = gr.Dropdown(
                         choices=model_preset_keys,
@@ -814,8 +701,8 @@ def main() -> None:
             with gr.Row(equal_height=False, elem_classes=["form-row"]):
                 with gr.Column(scale=6, elem_classes=["glass-card", "tech-panel"]):
                     gr.Markdown(
-                        "### Runtime & Decode\n"
-                        "语言、设备和分段参数。说话人区分开关也放在这里，避免和模型设置割裂。"
+                        "### 运行时与解码单元\n"
+                        "指定语言、计算设备及流式分段参数。为确保逻辑闭环，说话人声纹特征提取（Speaker Diarization）选项亦配置于此。"
                     )
                     with gr.Row():
                         language = gr.Dropdown(
@@ -861,8 +748,8 @@ def main() -> None:
 
                 with gr.Column(scale=6, elem_classes=["glass-card"]):
                     gr.Markdown(
-                        "### Run Notes\n"
-                        "Speaker diarization V1 适合会议、访谈、讨论录音。若是多人重叠说话严重或混响很重，发言人边界仍可能不稳。"
+                        "### 最佳实践指南\n"
+                        "声纹分离（Speaker Diarization V1）专为会议、对谈场景设计。若所处声学环境存在严重多人同重叠堆叠或复杂混响，可能导致局部话语边界解析下降。"
                     )
                     gr.HTML(
                         _metric_card_html(
@@ -883,7 +770,7 @@ def main() -> None:
                 with gr.Column(scale=7):
                     gr.Markdown("### Execute")
                     gr.HTML(
-                        '<div class="action-copy">点击后会按当前配置执行批处理。若存在 speaker sidecar，会一并写入下载结果并在预览区展示结构化内容。</div>'
+                        '<div class="action-copy">点击执行批处理工作流。系统将在完成转写与声纹聚类后，自动打包产物结构至下载区，供后续业务长链条调用。</div>'
                     )
                 with gr.Column(scale=3, min_width=220):
                     start_btn = gr.Button("Start transcription", variant="primary", size="lg")
@@ -891,7 +778,7 @@ def main() -> None:
             gr.HTML(
                 _section_banner_html(
                     "Results",
-                    "Inspect transcript and artifacts",
+                    "检视实时转写日志与交付产物",
                     "左侧用于快速查看转写结果，右侧保留下载与元数据。这样既方便直接复制内容，也方便排查推理配置和资源占用。",
                 )
             )
