@@ -11,6 +11,13 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from funasr_lite.workflow_profiles import (
+    WORKFLOW_PROFILES,
+    build_suggested_note_path,
+    detect_workflow_profile_from_input,
+    get_workflow_profile,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MODEL = "damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
@@ -55,22 +62,68 @@ def clean_transcript_text(raw_text: str) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
-def run_command(cmd: list[str], *, cwd: Path | None = None) -> None:
-    subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=True)
+def run_command(cmd: list[str], *, cwd: Path | None = None, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        check=True,
+        capture_output=capture_output,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
 
 
-def resolve_media(input_value: str, out_dir: Path) -> Path:
+def _predict_ytdlp_path(cmd: list[str]) -> Path | None:
+    try:
+        cp = run_command(cmd, capture_output=True)
+    except subprocess.CalledProcessError:
+        return None
+
+    lines = [line.strip() for line in (cp.stdout or "").splitlines() if line.strip()]
+    if not lines:
+        return None
+    return Path(lines[-1])
+
+
+def resolve_media(input_value: str, out_dir: Path, *, download_root: Path | None = None, download_mode: str = "audio") -> Path:
     if re.match(r"^https?://", input_value):
-        source_tpl = out_dir / "source.%(ext)s"
-        cmd = ["yt-dlp", "-x", "--audio-format", "wav", "--audio-quality", "0", "-o", str(source_tpl)]
+        target_dir = download_root or out_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+        source_tpl = target_dir / "%(title)s [%(id)s].%(ext)s"
+        archive_path = target_dir / ".yt-dlp-archive.txt"
+        predict_cmd = ["yt-dlp", "--get-filename", "-o", str(source_tpl)]
+        cmd = ["yt-dlp", "--download-archive", str(archive_path), "-o", str(source_tpl)]
+        if download_mode == "audio":
+            predict_cmd.extend(["-x", "--audio-format", "wav", "--audio-quality", "0"])
+            cmd.extend(["-x", "--audio-format", "wav", "--audio-quality", "0"])
+        else:
+            predict_cmd.extend(["--merge-output-format", "mp4"])
+            cmd.extend(["--merge-output-format", "mp4"])
         cookie_file = find_cookie_file()
         if cookie_file:
+            predict_cmd.extend(["--cookies", str(cookie_file)])
             cmd.extend(["--cookies", str(cookie_file)])
+        predict_cmd.append(input_value)
         cmd.append(input_value)
+
+        predicted = _predict_ytdlp_path(predict_cmd)
         run_command(cmd)
-        candidates = sorted(out_dir.glob("source.*"))
+
+        if predicted and predicted.exists():
+            return predicted
+
+        candidates = sorted(
+            [
+                p
+                for p in target_dir.iterdir()
+                if p.is_file() and p.suffix.lower() in {".mp4", ".mkv", ".webm", ".m4a", ".wav", ".mp3"}
+            ],
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
         if not candidates:
-            raise SystemExit("yt-dlp completed but no downloaded source file was found.")
+            raise SystemExit("yt-dlp completed but no downloaded media file was found.")
         return candidates[0]
 
     media = Path(input_value).expanduser().resolve()
@@ -106,6 +159,9 @@ def build_prompt(
     source_value: str,
     *,
     speaker_transcript_md: Path | None = None,
+    profile_name: str = "",
+    note_target_path: Path | None = None,
+    media_library_path: Path | None = None,
 ) -> Path | None:
     if not prompt_name:
         return None
@@ -121,8 +177,11 @@ def build_prompt(
         "# 待处理转写信息",
         f"- 标签: {tag or '未指定'}",
         f"- 模板: {prompt_name}",
+        f"- 工作流配置: {profile_name or '通用'}",
         f"- 来源: {source_value}",
         f"- 转写目录: {out_dir}",
+        f"- 媒体存档路径: {media_library_path or '未指定'}",
+        f"- 建议总结写入路径: {note_target_path or '未指定'}",
         "",
     ]
 
@@ -154,6 +213,12 @@ def main() -> None:
     parser.add_argument("input", help="Local media path or URL.")
     parser.add_argument("--tag", default="", help="Optional tag such as #组会 / #技术 / #人文.")
     parser.add_argument("--prompt", default="", help="Optional prompt file name or stem under prompts/. Overrides --tag mapping.")
+    parser.add_argument(
+        "--profile",
+        default="",
+        choices=[""] + sorted(WORKFLOW_PROFILES.keys()),
+        help="Optional workflow profile. Profiles can pin download / prompt / note destinations.",
+    )
     parser.add_argument("--scenario", default=DEFAULT_SCENARIO)
     parser.add_argument("--device", default="cuda", choices=["auto", "cpu", "cuda"])
     parser.add_argument("--model", default=os.getenv("FUNASR_MODEL_ID", DEFAULT_MODEL))
@@ -165,14 +230,30 @@ def main() -> None:
         default=0,
         help="Known speaker count. 0 means automatic clustering.",
     )
-    parser.add_argument("--output-root", default=str(ROOT / "outputs" / "transcripts"))
+    parser.add_argument("--output-root", default="", help="Where transcript artifacts are stored. Defaults to profile output root or project outputs.")
+    parser.add_argument("--download-root", default="", help="Where URL media should be stored permanently.")
+    parser.add_argument("--note-root", default="", help="Where final markdown summaries should be written.")
+    parser.add_argument(
+        "--download-mode",
+        default="",
+        choices=["", "audio", "video"],
+        help="For URL inputs: keep audio only or full video. Defaults to video for managed profiles, otherwise audio.",
+    )
     parser.add_argument("--timestamp", default="")
     parser.add_argument("--retention-days", type=int, default=7)
     parser.add_argument("--keep-download", action="store_true")
     args, passthrough = parser.parse_known_args()
 
+    profile = get_workflow_profile(args.profile) if args.profile else detect_workflow_profile_from_input(args.input)
+    output_root_value = args.output_root or (profile.output_root if profile else str(ROOT / "outputs" / "transcripts"))
+    download_root = Path(args.download_root).expanduser() if args.download_root else (Path(profile.download_root) if profile else None)
+    note_root = Path(args.note_root).expanduser() if args.note_root else (Path(profile.note_root) if profile else None)
+    effective_tag = args.tag or (profile.tag if profile else "")
+    effective_prompt_name = args.prompt or (profile.prompt_name if profile else "")
+    download_mode = args.download_mode or ("video" if profile else "audio")
+
     ts = args.timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_root = Path(args.output_root).expanduser()
+    out_root = Path(output_root_value).expanduser()
     out_dir = out_root / ts
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -187,7 +268,7 @@ def main() -> None:
             except OSError:
                 pass
 
-    media = resolve_media(args.input, out_dir)
+    media = resolve_media(args.input, out_dir, download_root=download_root, download_mode=download_mode)
     wav_path = out_dir / "audio.wav"
     run_command(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(media), "-ac", "1", "-ar", "16000", str(wav_path)])
 
@@ -227,14 +308,18 @@ def main() -> None:
     if transcript_speakers_md.exists():
         speaker_prompt_source = transcript_speakers_md
 
-    prompt_name = resolve_prompt_name(args.tag, args.prompt)
+    prompt_name = resolve_prompt_name(effective_tag, effective_prompt_name)
+    note_target_path = build_suggested_note_path(profile, media, note_root=note_root) if profile and note_root else None
     prompt_path = build_prompt(
-        args.tag,
+        effective_tag,
         prompt_name,
         transcript_txt,
         out_dir,
         args.input,
         speaker_transcript_md=speaker_prompt_source,
+        profile_name=profile.display_name if profile else "",
+        note_target_path=note_target_path,
+        media_library_path=media,
     )
 
     if media.parent == out_dir and not args.keep_download and media != wav_path:
@@ -244,10 +329,17 @@ def main() -> None:
             pass
 
     payload = {
-        "tag": args.tag,
+        "tag": effective_tag,
+        "profile": profile.key if profile else "",
+        "profile_name": profile.display_name if profile else "",
         "prompt_template": prompt_name,
         "speaker_diarization": bool(args.speaker_diarization),
         "output_dir": str(out_dir),
+        "download_mode": download_mode,
+        "download_root": str(download_root) if download_root else "",
+        "note_root": str(note_root) if note_root else "",
+        "source_media_path": str(media),
+        "suggested_note_path": str(note_target_path) if note_target_path else "",
         "wav_path": str(wav_path),
         "transcript_md": str(transcript_md),
         "transcript_txt": str(transcript_txt),

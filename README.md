@@ -116,6 +116,22 @@ The project-local pipeline wraps `yt-dlp`, `ffmpeg`, `transcribe_local.py`, tran
 .\Run-FunASRPipeline.ps1 "D:\recordings\meeting.mp3" --speaker-diarization --speaker-count 0
 ```
 
+Managed channel/library profiles are also available:
+
+```powershell
+# 渤海小吏：下载视频到固定媒体库，并给出固定 Obsidian 总结落点
+.\Run-FunASRPipeline.ps1 "https://www.bilibili.com/video/BV..." --profile bohai
+
+# 峰video：同理
+.\Run-FunASRPipeline.ps1 "https://www.bilibili.com/video/BV..." --profile peak
+```
+
+When a profile is enabled, the pipeline will:
+- keep the downloaded media in the profile's library folder instead of discarding it
+- prefer the profile-specific prompt template
+- write a recommended final summary note path into both `summary_prompt.md` and `run_manifest.json`
+- store transcript artifacts under the profile's `_workflow_outputs\` directory
+
 Outputs go to `.\outputs\transcripts\<timestamp>\`:
 - `audio.wav`
 - `transcript.md`
@@ -123,6 +139,10 @@ Outputs go to `.\outputs\transcripts\<timestamp>\`:
 - `transcript_speakers.md` when speaker diarization is enabled
 - `transcript_speakers.json` when speaker diarization is enabled
 - `summary_prompt.md` when a matching prompt template is resolved
+
+With a managed profile, outputs go to the profile-specific workflow directory, for example:
+- `E:\Software_tools\yt-dlp\downloads\BiliBili\渤海小吏\合集·进化缓慢的人性\_workflow_outputs\<timestamp>\`
+- `E:\Software_tools\yt-dlp\downloads\BiliBili\峰video\合集·“带你升级！”系列充电专属视频\_workflow_outputs\<timestamp>\`
 
 The preferred cookies location for `yt-dlp` is `.\secrets\cookies\all_cookies.txt`.
 If it is missing, the pipeline falls back to `%USERPROFILE%\.openclaw\secrets\cookies\all_cookies.txt` and `~/.openclaw/secrets/cookies/all_cookies.txt`.
