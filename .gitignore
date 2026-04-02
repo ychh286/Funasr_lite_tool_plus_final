@@ -28,6 +28,7 @@ dist/
 /tools/outputs/
 /outputs/
 /secrets/
+workflow_profiles.local.json
 
 # OS
 .DS_Store

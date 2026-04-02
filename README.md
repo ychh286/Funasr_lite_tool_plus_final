@@ -116,15 +116,17 @@ The project-local pipeline wraps `yt-dlp`, `ffmpeg`, `transcribe_local.py`, tran
 .\Run-FunASRPipeline.ps1 "D:\recordings\meeting.mp3" --speaker-diarization --speaker-count 0
 ```
 
-Managed channel/library profiles are also available:
+Managed channel/library profiles can also be enabled via a local config file:
 
 ```powershell
-# 渤海小吏：下载视频到固定媒体库，并给出固定 Obsidian 总结落点
-.\Run-FunASRPipeline.ps1 "https://www.bilibili.com/video/BV..." --profile bohai
-
-# 峰video：同理
-.\Run-FunASRPipeline.ps1 "https://www.bilibili.com/video/BV..." --profile peak
+# Use a locally configured profile name from workflow_profiles.local.json
+.\Run-FunASRPipeline.ps1 "https://www.bilibili.com/video/BV..." --profile my_channel
 ```
+
+Configuration notes:
+- Copy `workflow_profiles.example.json` to `workflow_profiles.local.json`
+- Fill in your local `download_root`, `note_root`, `output_root`, and `prompt_name`
+- `workflow_profiles.local.json` is ignored by git and intended for owner-local routing rules
 
 When a profile is enabled, the pipeline will:
 - keep the downloaded media in the profile's library folder instead of discarding it
@@ -140,9 +142,7 @@ Outputs go to `.\outputs\transcripts\<timestamp>\`:
 - `transcript_speakers.json` when speaker diarization is enabled
 - `summary_prompt.md` when a matching prompt template is resolved
 
-With a managed profile, outputs go to the profile-specific workflow directory, for example:
-- `E:\Software_tools\yt-dlp\downloads\BiliBili\渤海小吏\合集·进化缓慢的人性\_workflow_outputs\<timestamp>\`
-- `E:\Software_tools\yt-dlp\downloads\BiliBili\峰video\合集·“带你升级！”系列充电专属视频\_workflow_outputs\<timestamp>\`
+With a managed profile, outputs go to the profile-specific workflow directory configured in `workflow_profiles.local.json`.
 
 The preferred cookies location for `yt-dlp` is `.\secrets\cookies\all_cookies.txt`.
 If it is missing, the pipeline falls back to `%USERPROFILE%\.openclaw\secrets\cookies\all_cookies.txt` and `~/.openclaw/secrets/cookies/all_cookies.txt`.

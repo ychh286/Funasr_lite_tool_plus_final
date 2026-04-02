@@ -12,10 +12,10 @@ from datetime import datetime
 from pathlib import Path
 
 from funasr_lite.workflow_profiles import (
-    WORKFLOW_PROFILES,
     build_suggested_note_path,
     detect_workflow_profile_from_input,
     get_workflow_profile,
+    get_workflow_profiles,
 )
 
 
@@ -213,10 +213,11 @@ def main() -> None:
     parser.add_argument("input", help="Local media path or URL.")
     parser.add_argument("--tag", default="", help="Optional tag such as #组会 / #技术 / #人文.")
     parser.add_argument("--prompt", default="", help="Optional prompt file name or stem under prompts/. Overrides --tag mapping.")
+    profile_keys = sorted(get_workflow_profiles().keys())
     parser.add_argument(
         "--profile",
         default="",
-        choices=[""] + sorted(WORKFLOW_PROFILES.keys()),
+        choices=[""] + profile_keys,
         help="Optional workflow profile. Profiles can pin download / prompt / note destinations.",
     )
     parser.add_argument("--scenario", default=DEFAULT_SCENARIO)
