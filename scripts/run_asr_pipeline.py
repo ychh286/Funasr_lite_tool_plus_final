@@ -246,7 +246,8 @@ def main() -> None:
     args, passthrough = parser.parse_known_args()
 
     profile = get_workflow_profile(args.profile) if args.profile else detect_workflow_profile_from_input(args.input)
-    output_root_value = args.output_root or (profile.output_root if profile else str(ROOT / "outputs" / "transcripts"))
+    default_output_root = str(ROOT / "outputs" / "transcripts")
+    output_root_value = args.output_root or (profile.output_root if profile and profile.output_root else default_output_root)
     download_root = Path(args.download_root).expanduser() if args.download_root else (Path(profile.download_root) if profile else None)
     note_root = Path(args.note_root).expanduser() if args.note_root else (Path(profile.note_root) if profile else None)
     effective_tag = args.tag or (profile.tag if profile else "")
