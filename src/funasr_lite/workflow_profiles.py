@@ -18,11 +18,14 @@ class WorkflowProfile:
     note_root: str
     output_root: str
     note_title_prefix: str
+    url_patterns: tuple[str, ...]
 
 
 _VIDEO_NAME_RE = re.compile(
     r"^(?P<index>\d+)\s*-\s*(?P<title>.+?)\s*\[(?P<bvid>BV[0-9A-Za-z]+)\]$"
 )
+_BVID_RE = re.compile(r"\[(?P<bvid>BV[0-9A-Za-z]+)\]$")
+_LEADING_INDEX_RE = re.compile(r"^(?P<index>\d+)\s*-\s*(?P<rest>.+)$")
 
 _PROFILES_CACHE: dict[str, WorkflowProfile] | None = None
 
@@ -74,6 +77,7 @@ def _load_profiles_from_disk() -> dict[str, WorkflowProfile]:
                 note_root=str(value.get("note_root") or ""),
                 output_root=str(value.get("output_root") or ""),
                 note_title_prefix=str(value.get("note_title_prefix") or ""),
+                url_patterns=tuple(str(item) for item in (value.get("url_patterns") or []) if str(item).strip()),
             )
         return profiles
     return {}
@@ -97,6 +101,15 @@ def get_workflow_profile(key: str) -> Optional[WorkflowProfile]:
 
 
 def detect_workflow_profile_from_input(input_value: str) -> Optional[WorkflowProfile]:
+    raw_input = (input_value or "").strip()
+    for profile in get_workflow_profiles().values():
+        for pattern in profile.url_patterns:
+            try:
+                if re.search(pattern, raw_input, re.IGNORECASE):
+                    return profile
+            except re.error:
+                continue
+
     try:
         candidate = Path(input_value).expanduser().resolve()
     except OSError:
@@ -129,6 +142,81 @@ def build_suggested_note_path(profile: WorkflowProfile, media_path: Path, *, not
     prefix = profile.note_title_prefix or ""
     filename = f"{prefix}{idx:02d} - {title} [{bvid}].md"
     return note_root / _sanitize_filename(filename)
+
+
+def build_managed_media_path(
+    profile: WorkflowProfile,
+    media_path: Path,
+    *,
+    download_root: Path | None = None,
+) -> Path:
+    target_root = download_root or Path(profile.download_root)
+    stem = media_path.stem
+    if _VIDEO_NAME_RE.match(stem):
+        return target_root / media_path.name
+
+    bvid = _extract_bvid(stem)
+    if bvid:
+        existing = _find_existing_media_by_bvid(target_root, bvid, suffix=media_path.suffix)
+        if existing:
+            return existing
+
+    title = stem
+    if bvid:
+        title = re.sub(rf"\s*\[{re.escape(bvid)}\]$", "", title).strip()
+    leading = _LEADING_INDEX_RE.match(title)
+    if leading:
+        title = leading.group("rest").strip()
+
+    next_index = _infer_next_index(target_root)
+    if bvid:
+        filename = f"{next_index:02d} - {title} [{bvid}]{media_path.suffix}"
+    else:
+        filename = f"{next_index:02d} - {title}{media_path.suffix}"
+    return target_root / _sanitize_filename(filename)
+
+
+def _extract_bvid(stem: str) -> str | None:
+    match = _VIDEO_NAME_RE.match(stem)
+    if match:
+        return match.group("bvid")
+    match = _BVID_RE.search(stem)
+    if match:
+        return match.group("bvid")
+    return None
+
+
+def _find_existing_media_by_bvid(root: Path, bvid: str, *, suffix: str = "") -> Path | None:
+    if not root.exists():
+        return None
+    candidates = []
+    for path in root.iterdir():
+        if not path.is_file():
+            continue
+        if suffix and path.suffix.lower() != suffix.lower():
+            continue
+        if f"[{bvid}]" in path.name:
+            candidates.append(path)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: p.name)
+    return candidates[0]
+
+
+def _infer_next_index(root: Path) -> int:
+    max_index = 0
+    if root.exists():
+        for path in root.iterdir():
+            if not path.is_file():
+                continue
+            match = _LEADING_INDEX_RE.match(path.stem)
+            if not match:
+                continue
+            try:
+                max_index = max(max_index, int(match.group("index")))
+            except ValueError:
+                continue
+    return max_index + 1
 
 
 def _sanitize_filename(name: str) -> str:

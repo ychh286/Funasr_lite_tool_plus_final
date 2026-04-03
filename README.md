@@ -132,7 +132,14 @@ When a profile is enabled, the pipeline will:
 - keep the downloaded media in the profile's library folder instead of discarding it
 - prefer the profile-specific prompt template
 - write a recommended final summary note path into both `summary_prompt.md` and `run_manifest.json`
-- store transcript artifacts under the profile's `_workflow_outputs\` directory
+- store transcript artifacts under the profile's configured cache/output directory, separate from the media library when desired
+
+If the input is a URL, the pipeline can also auto-match a locally configured profile when the URL contains one of that profile's configured `url_patterns`.
+
+For managed libraries that already use sequence naming, the pipeline also tries to rename freshly downloaded media into:
+- `NN - 标题 [BV号].ext`
+
+before generating the suggested final summary note path.
 
 Outputs go to `.\outputs\transcripts\<timestamp>\`:
 - `audio.wav`
@@ -144,8 +151,17 @@ Outputs go to `.\outputs\transcripts\<timestamp>\`:
 
 With a managed profile, outputs go to the profile-specific workflow directory configured in `workflow_profiles.local.json`.
 
-The preferred cookies location for `yt-dlp` is `.\secrets\cookies\all_cookies.txt`.
-If it is missing, the pipeline falls back to `%USERPROFILE%\.openclaw\secrets\cookies\all_cookies.txt` and `~/.openclaw/secrets/cookies/all_cookies.txt`.
+The preferred Windows cookies location for `yt-dlp` is:
+- `E:\Software_tools\yt-dlp\cookies\bili_cookies.txt` for Bilibili
+- `E:\Software_tools\yt-dlp\cookies\youtube_cookies.txt` for YouTube
+- `E:\Software_tools\yt-dlp\cookies\patreon_cookies.txt` for Patreon
+- `E:\Software_tools\yt-dlp\cookies\cookies.txt` as a generic fallback
+
+Optional override:
+- `FUNASR_LITE_COOKIE_FILE`
+- `YTDLP_COOKIE_FILE`
+
+Project-local `.\secrets\cookies\all_cookies.txt` is only kept as a final fallback for compatibility.
 
 ## Diagnostics script (optional)
 If you want detailed timing / GPU memory / cache hints:

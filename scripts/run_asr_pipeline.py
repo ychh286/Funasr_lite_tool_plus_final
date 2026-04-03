@@ -13,6 +13,7 @@ from pathlib import Path
 
 from funasr_lite.workflow_profiles import (
     build_suggested_note_path,
+    build_managed_media_path,
     detect_workflow_profile_from_input,
     get_workflow_profile,
     get_workflow_profiles,
@@ -34,13 +35,49 @@ TAG_PROMPTS = {
 }
 
 
-def find_cookie_file() -> Path | None:
-    candidates = [
-        ROOT / "secrets" / "cookies" / "all_cookies.txt",
-        Path.home() / ".openclaw" / "secrets" / "cookies" / "all_cookies.txt",
-        Path(r"\\wsl.localhost\Ubuntu\home\ychh_pc\.openclaw\secrets\cookies\all_cookies.txt"),
+def find_cookie_file(input_value: str = "") -> Path | None:
+    env_candidates = [
+        os.getenv("FUNASR_LITE_COOKIE_FILE", "").strip(),
+        os.getenv("YTDLP_COOKIE_FILE", "").strip(),
     ]
-    for path in candidates:
+    for raw in env_candidates:
+        if raw:
+            path = Path(raw).expanduser()
+            if path.exists():
+                return path
+
+    cookies_root = Path(r"E:\Software_tools\yt-dlp\cookies")
+    raw_input = (input_value or "").lower()
+    site_candidates: list[Path] = []
+    if "bilibili.com" in raw_input or "b23.tv" in raw_input:
+        site_candidates.extend(
+            [
+                cookies_root / "bili_cookies.txt",
+                cookies_root / "cookies.txt",
+            ]
+        )
+    elif "youtube.com" in raw_input or "youtu.be" in raw_input:
+        site_candidates.extend(
+            [
+                cookies_root / "youtube_cookies.txt",
+                cookies_root / "cookies.txt",
+            ]
+        )
+    elif "patreon.com" in raw_input:
+        site_candidates.extend(
+            [
+                cookies_root / "patreon_cookies.txt",
+                cookies_root / "cookies.txt",
+            ]
+        )
+    else:
+        site_candidates.append(cookies_root / "cookies.txt")
+
+    fallback_candidates = [
+        ROOT / "secrets" / "cookies" / "all_cookies.txt",
+    ]
+
+    for path in site_candidates + fallback_candidates:
         if path.exists():
             return path
     return None
@@ -74,6 +111,27 @@ def run_command(cmd: list[str], *, cwd: Path | None = None, capture_output: bool
     )
 
 
+def _echo_completed_output(cp: subprocess.CompletedProcess[str]) -> None:
+    if cp.stdout:
+        sys.stdout.buffer.write(cp.stdout.encode("utf-8", errors="replace"))
+        if not cp.stdout.endswith("\n"):
+            sys.stdout.buffer.write(b"\n")
+    if cp.stderr:
+        sys.stderr.buffer.write(cp.stderr.encode("utf-8", errors="replace"))
+        if not cp.stderr.endswith("\n"):
+            sys.stderr.buffer.write(b"\n")
+
+
+def _extract_download_warnings(text: str) -> list[str]:
+    warnings: list[str] = []
+    lowered = text.lower()
+    if "premium member to download" in lowered or "1080p 高清 are missing" in lowered or "1080p 高码率" in text:
+        warnings.append(
+            "当前 cookies 不具备目标站点的高权限下载能力；如需更高清晰度/高码率，请更新 E:\\Software_tools\\yt-dlp\\cookies 下对应站点的 cookies 文件。"
+        )
+    return warnings
+
+
 def _predict_ytdlp_path(cmd: list[str]) -> Path | None:
     try:
         cp = run_command(cmd, capture_output=True)
@@ -86,7 +144,13 @@ def _predict_ytdlp_path(cmd: list[str]) -> Path | None:
     return Path(lines[-1])
 
 
-def resolve_media(input_value: str, out_dir: Path, *, download_root: Path | None = None, download_mode: str = "audio") -> Path:
+def resolve_media(
+    input_value: str,
+    out_dir: Path,
+    *,
+    download_root: Path | None = None,
+    download_mode: str = "audio",
+) -> tuple[Path, list[str]]:
     if re.match(r"^https?://", input_value):
         target_dir = download_root or out_dir
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -100,7 +164,7 @@ def resolve_media(input_value: str, out_dir: Path, *, download_root: Path | None
         else:
             predict_cmd.extend(["--merge-output-format", "mp4"])
             cmd.extend(["--merge-output-format", "mp4"])
-        cookie_file = find_cookie_file()
+        cookie_file = find_cookie_file(input_value)
         if cookie_file:
             predict_cmd.extend(["--cookies", str(cookie_file)])
             cmd.extend(["--cookies", str(cookie_file)])
@@ -108,10 +172,12 @@ def resolve_media(input_value: str, out_dir: Path, *, download_root: Path | None
         cmd.append(input_value)
 
         predicted = _predict_ytdlp_path(predict_cmd)
-        run_command(cmd)
+        cp = run_command(cmd, capture_output=True)
+        _echo_completed_output(cp)
+        warnings = _extract_download_warnings((cp.stdout or "") + "\n" + (cp.stderr or ""))
 
         if predicted and predicted.exists():
-            return predicted
+            return predicted, warnings
 
         candidates = sorted(
             [
@@ -124,12 +190,12 @@ def resolve_media(input_value: str, out_dir: Path, *, download_root: Path | None
         )
         if not candidates:
             raise SystemExit("yt-dlp completed but no downloaded media file was found.")
-        return candidates[0]
+        return candidates[0], warnings
 
     media = Path(input_value).expanduser().resolve()
     if not media.exists():
         raise SystemExit(f"Input not found: {media}")
-    return media
+    return media, []
 
 
 def resolve_prompt_name(tag: str, prompt: str) -> str:
@@ -270,7 +336,20 @@ def main() -> None:
             except OSError:
                 pass
 
-    media = resolve_media(args.input, out_dir, download_root=download_root, download_mode=download_mode)
+    media, download_warnings = resolve_media(
+        args.input,
+        out_dir,
+        download_root=download_root,
+        download_mode=download_mode,
+    )
+    if profile and download_root and media.exists():
+        managed_media_path = build_managed_media_path(profile, media, download_root=download_root)
+        if managed_media_path != media:
+            managed_media_path.parent.mkdir(parents=True, exist_ok=True)
+            if not managed_media_path.exists():
+                media.rename(managed_media_path)
+            media = managed_media_path
+
     wav_path = out_dir / "audio.wav"
     run_command(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(media), "-ac", "1", "-ar", "16000", str(wav_path)])
 
@@ -339,6 +418,7 @@ def main() -> None:
         "output_dir": str(out_dir),
         "download_mode": download_mode,
         "download_root": str(download_root) if download_root else "",
+        "download_warnings": download_warnings,
         "note_root": str(note_root) if note_root else "",
         "source_media_path": str(media),
         "suggested_note_path": str(note_target_path) if note_target_path else "",
