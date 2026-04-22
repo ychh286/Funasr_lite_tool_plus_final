@@ -9,9 +9,21 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PythonExe = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
+$SrcRoot = Join-Path $ProjectRoot 'src'
 
 if (-not (Test-Path -LiteralPath $PythonExe)) {
     Write-Error "Python virtual environment not found: $PythonExe"
+}
+if (-not (Test-Path -LiteralPath $SrcRoot)) {
+    Write-Error "Project src directory not found: $SrcRoot"
+}
+
+$PreviousPythonPath = $env:PYTHONPATH
+if ([string]::IsNullOrWhiteSpace($PreviousPythonPath)) {
+    $env:PYTHONPATH = $SrcRoot
+}
+else {
+    $env:PYTHONPATH = "$SrcRoot;$PreviousPythonPath"
 }
 
 $ModuleName = 'funasr_lite.webui_workbench'
@@ -36,5 +48,6 @@ try {
     exit $LASTEXITCODE
 }
 finally {
+    $env:PYTHONPATH = $PreviousPythonPath
     Pop-Location
 }
