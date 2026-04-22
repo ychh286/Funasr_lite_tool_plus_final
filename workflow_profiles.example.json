@@ -7,11 +7,7 @@
       "download_root": "E:\\media\\my_channel",
       "note_root": "E:\\notes\\audio_video_summaries\\my_channel",
       "output_root": "E:\\media\\my_channel\\_workflow_outputs",
-      "note_title_prefix": "【深度总结】",
-      "url_patterns": [
-        "bilibili\\.com",
-        "youtu\\.be"
-      ]
+      "note_title_prefix": "【深度总结】"
     }
   }
 }

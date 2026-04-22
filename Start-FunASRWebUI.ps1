@@ -14,7 +14,11 @@ if (-not (Test-Path -LiteralPath $PythonExe)) {
     Write-Error "Python virtual environment not found: $PythonExe"
 }
 
-$ModuleName = if ($Legacy) { 'funasr_lite.webui' } else { 'funasr_lite.webui_workbench' }
+$ModuleName = 'funasr_lite.webui_workbench'
+if ($Legacy) {
+    $ModuleName = 'funasr_lite.webui'
+}
+
 $argList = @('-m', $ModuleName, '--host', $ListenHost, '--port', "$Port")
 if ($Share) {
     $argList += '--share'
@@ -22,8 +26,7 @@ if ($Share) {
 
 if ($Background) {
     $process = Start-Process -FilePath $PythonExe -ArgumentList $argList -WorkingDirectory $ProjectRoot -PassThru
-    $ModeName = if ($Legacy) { 'Legacy WebUI' } else { 'Audio Workbench V2' }
-    Write-Output "Started FunASR $ModeName: PID=$($process.Id) URL=http://$ListenHost`:$Port"
+    Write-Output "Started FunASR WebUI: PID=$($process.Id) URL=http://$ListenHost`:$Port Module=$ModuleName"
     exit 0
 }
 
