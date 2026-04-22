@@ -91,6 +91,12 @@ Cookies are used only at runtime for `yt-dlp`; generated zip bundles intentional
 
 See `docs/audio_workbench_v2_design.md` for the design and implementation notes.
 
+The Workbench now exposes three complementary tabs:
+
+- `完整工作流 V2`: one media item -> one run directory -> optional LLM summary
+- `批量转写`: multi-file / directory transcription only, no forced single `final_summary.md`
+- `总结追问与改写`: continue chatting on an existing run, optionally update the working summary inside run-local cache
+
 ### Windows: one-click launch + Start Menu shortcut (recommended)
 After the environment is ready, run once:
 
@@ -215,6 +221,22 @@ $env:FUNASR_LITE_LLM_API_KEY_ENV = "LITELLM_API_KEY"
 $env:LITELLM_API_KEY = "..."
 ```
 
+The follow-up chat tab can reuse the same LLM settings, but it writes iterative summary revisions only into the run-local cache directory:
+
+- `outputs/workbench_runs/<timestamp>/_followup_cache/summary_current.md`
+- `outputs/workbench_runs/<timestamp>/_followup_cache/summary_vNN.md`
+- follow-up history JSON files
+
+These follow-up cache files are intentionally **not** added to `workflow_outputs.zip`.
+
+Optional Brave Search for follow-up chat:
+
+```powershell
+$env:BRAVE_SEARCH_API_KEY = "..."
+```
+
+Brave Search is only used as an optional external background source for follow-up questions. The first-round summary still stays transcript-first.
+
 External tool lookup order for V2:
 
 - explicit UI path
@@ -222,6 +244,18 @@ External tool lookup order for V2:
 - project-local `.local_tools`
 - common Windows paths such as `E:\Software_tools\yt-dlp\yt-dlp.exe` and `E:\Software_tools\ffmpeg\bin\ffmpeg.exe`
 - PATH
+
+In the UI, `Profile / 本地路由配置` and `Prompt` are different things:
+
+- `Profile / 本地路由配置` decides default tag, default prompt, and local directory routing
+- `Prompt` decides the actual text instructions sent to the summarization model
+
+The UI also supports local folder-picking buttons for:
+
+- run output root
+- media download/archive root
+- final note root
+- follow-up run directory
 
 ## Diagnostics script (optional)
 If you want detailed timing / GPU memory / cache hints:

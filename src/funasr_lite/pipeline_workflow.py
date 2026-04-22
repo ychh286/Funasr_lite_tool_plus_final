@@ -470,7 +470,7 @@ def build_bundle(out_dir: Path, files: list[Path]) -> Path:
         for path in files:
             if not path or not path.exists() or not path.is_file():
                 continue
-            if "_runtime_cookies" in path.parts:
+            if "_runtime_cookies" in path.parts or "_followup_cache" in path.parts:
                 continue
             resolved = path.resolve()
             if resolved in seen:
@@ -620,3 +620,98 @@ def run_audio_workflow(
     preview = speaker_text.strip() if speaker_text.strip() else transcript_text.strip()
     _report(progress, 1.0, "完成")
     return AudioWorkflowResult(preview=preview, summary_preview=final_text.strip(), final_markdown_path=str(final_md), bundle_path=str(bundle_zip), manifest_path=str(manifest_path), meta=manifest)
+
+
+def inspect_audio_workflow_environment(
+    *,
+    source_url: str = "",
+    uploaded_media: object = None,
+    profile_key: str = "auto",
+    selected_prompt_labels: list[str] | None = None,
+    output_root: str = "",
+    download_root: str = "",
+    note_root: str = "",
+    cookie_mode: str = "auto",
+    cookie_path: str = "",
+    uploaded_cookie: object = None,
+    ytdlp_path: str = "",
+    ffmpeg_path: str = "",
+) -> dict[str, Any]:
+    """预览当前 Workbench 将采用的目录、工具和 cookies 解析结果。
+
+    功能：
+        在真正开始长任务之前，把 profile、目录、工具路径和 cookies 的实际命中结果
+        整理成结构化信息，供前端展示给用户。
+
+    关键参数：
+        source_url / uploaded_media：当前输入源，用于判断 URL 还是本地媒体。
+        profile_key：用户当前选择的 profile。
+        output_root / download_root / note_root：用户手动覆盖的目录。
+        cookie_mode / cookie_path / uploaded_cookie：cookies 解析所需参数。
+        ytdlp_path / ffmpeg_path：工具路径覆盖项。
+
+    返回值：
+        一个字典，包含 profile、目录、工具与 cookies 的探测结果。
+
+    状态影响：
+        无外部副作用；不会触发下载、转写或文件写入。
+
+    调用时机：
+        WebUI 中点击“检查环境与路径”时。
+    """
+
+    source_value = (source_url or "").strip()
+    source_kind = "empty"
+    if source_value:
+        source_kind = "url"
+    else:
+        media_paths = _as_path_list(uploaded_media)
+        if media_paths:
+            source_kind = "local"
+            source_value = str(media_paths[0].expanduser())
+
+    detected_profile = resolve_profile(profile_key, source_value)
+    default_output_root = ROOT / "outputs" / "workbench_runs"
+    out_root = _path_or_none(output_root) or (_path_or_none(detected_profile.output_root) if detected_profile and detected_profile.output_root else None) or default_output_root
+    effective_download_root = _path_or_none(download_root) or (_path_or_none(detected_profile.download_root) if detected_profile and detected_profile.download_root else None)
+    effective_note_root = _path_or_none(note_root) or (_path_or_none(detected_profile.note_root) if detected_profile and detected_profile.note_root else None)
+
+    ffmpeg_status = "未检查"
+    try:
+        ffmpeg_bin = resolve_executable("ffmpeg", explicit_path=ffmpeg_path, env_names=("FUNASR_LITE_FFMPEG", "FFMPEG_BINARY", "IMAGEIO_FFMPEG_EXE"))
+        ffmpeg_status = f"`{ffmpeg_bin}`"
+    except Exception as exc:  # noqa: BLE001
+        ffmpeg_status = f"❌ {exc}"
+
+    if source_kind == "url":
+        try:
+            ytdlp_bin = resolve_executable("yt-dlp", explicit_path=ytdlp_path, env_names=("FUNASR_LITE_YTDLP", "YTDLP_BIN"))
+            ytdlp_status = f"`{ytdlp_bin}`"
+        except Exception as exc:  # noqa: BLE001
+            ytdlp_status = f"❌ {exc}"
+        try:
+            cookie_file = resolve_cookie_file(source_value, cookie_mode=cookie_mode, cookie_path=cookie_path, uploaded_cookie=uploaded_cookie)
+            if cookie_file:
+                cookie_status = f"`{cookie_file}`"
+            else:
+                cookie_status = "未命中；若目标资源需要登录，建议手动提供。"
+        except Exception as exc:  # noqa: BLE001
+            cookie_status = f"❌ {exc}"
+    else:
+        ytdlp_status = "本次不是 URL 输入，默认不需要。"
+        cookie_status = "本次不是 URL 输入，默认不需要。"
+
+    return {
+        "source_kind": source_kind,
+        "source_value": source_value,
+        "profile_key": detected_profile.key if detected_profile else "",
+        "profile_label": detected_profile.display_name if detected_profile else "",
+        "profile_prompt": detected_profile.prompt_name if detected_profile else "",
+        "resolved_output_root": str(out_root),
+        "resolved_download_root": str(effective_download_root) if effective_download_root else "",
+        "resolved_note_root": str(effective_note_root) if effective_note_root else "",
+        "ytdlp_status": ytdlp_status,
+        "ffmpeg_status": ffmpeg_status,
+        "cookie_status": cookie_status,
+        "default_prompts": selected_prompt_labels or [],
+    }
