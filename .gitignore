@@ -25,9 +25,17 @@ dist/
 *.log
 
 # Tool artifacts
+/.local_tools/
 /tools/outputs/
 /outputs/
 /secrets/
+workflow_profiles.local.json
+*.mp4
+*.mkv
+*.webm
+*.m4a
+*.mp3
+*.wav
 
 # OS
 .DS_Store
