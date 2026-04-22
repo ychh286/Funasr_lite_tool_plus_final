@@ -42,20 +42,31 @@ uv pip install -U funasr modelscope huggingface_hub soundfile gradio --index-url
 uv pip install -e . --no-deps
 ```
 
-## Quick start: WebGUI
+## Quick start: Audio Workbench V2
 ```powershell
 uv run --active funasr-lite-web
 ```
-Open the local URL shown in terminal, upload/select an audio/video file, then download `.md` or `.txt`.
+Open the local URL shown in terminal, then use one page to handle:
+
+- URL or local media input
+- `yt-dlp` download
+- `ffmpeg` preprocessing
+- FunASR transcription
+- prompt multi-select + extra prompt upload + ad-hoc instructions
+- optional OpenAI-compatible LLM summarization
+- `final_summary.md`, `workflow_outputs.zip`, `run_manifest.json`
 
 Windows one-click launch from project root:
 ```bat
 Start-FunASRWebUI.cmd
 ```
 
-When speaker diarization is enabled, the download bundle also includes:
-- `*_speakers.md`
-- `*_speakers.json`
+If you still need the older local batch transcription UI:
+
+```powershell
+.\Start-FunASRWebUI.ps1 -Legacy
+uv run --active funasr-lite-web-legacy
+```
 
 ### Windows: one-click launch + Start Menu shortcut (recommended)
 After the environment is ready, run once:
@@ -69,7 +80,7 @@ Then open **Start Menu** and run:
 - `funasr-lite` -> `funasr-lite WebUI`
 
 Notes:
-- The WebUI binds to `127.0.0.1:7860` by default and auto-opens the browser.
+- The WebUI binds to `127.0.0.1:7860` by default.
 - To stop the service, close the console window (or press Ctrl+C).
 - Optional overrides (no file edits): set environment variables `FUNASR_LITE_HOST` and/or `FUNASR_LITE_PORT`.
 
@@ -101,7 +112,7 @@ Examples:
 ```
 
 ## Quick start: Pipeline
-The project-local pipeline wraps `yt-dlp`, `ffmpeg`, `transcribe_local.py`, transcript cleaning, and optional prompt selection.
+The project-local pipeline now reuses the same service layer as Audio Workbench V2. It wraps `yt-dlp`, `ffmpeg`, `transcribe_local.py`, transcript cleaning, prompt assembly, and output packaging.
 
 ```powershell
 .\Run-FunASRPipeline.ps1 "D:\recordings\meeting.mp3" --tag "#组会"
@@ -147,21 +158,30 @@ Outputs go to `.\outputs\transcripts\<timestamp>\`:
 - `transcript.txt`
 - `transcript_speakers.md` when speaker diarization is enabled
 - `transcript_speakers.json` when speaker diarization is enabled
-- `summary_prompt.md` when a matching prompt template is resolved
+- `summary_prompt.md`
+- `final_summary.md`
+- `workflow_outputs.zip`
+- `run_manifest.json`
+
+Audio Workbench V2 writes to `.\outputs\workbench_runs\<timestamp>\` by default.
 
 With a managed profile, outputs go to the profile-specific workflow directory configured in `workflow_profiles.local.json`.
 
-The preferred Windows cookies location for `yt-dlp` is:
-- `E:\Software_tools\yt-dlp\cookies\bili_cookies.txt` for Bilibili
-- `E:\Software_tools\yt-dlp\cookies\youtube_cookies.txt` for YouTube
-- `E:\Software_tools\yt-dlp\cookies\patreon_cookies.txt` for Patreon
-- `E:\Software_tools\yt-dlp\cookies\cookies.txt` as a generic fallback
+Cookies auto-discovery checks these locations in order:
+- `FUNASR_LITE_COOKIE_FILE`
+- `YTDLP_COOKIE_FILE`
+- site-specific files under `FUNASR_LITE_COOKIE_ROOT`
+- site-specific files under `YTDLP_COOKIE_ROOT`
+- `.\secrets\cookies\`
+- `~\.openclaw\secrets\cookies\`
 
 Optional override:
 - `FUNASR_LITE_COOKIE_FILE`
 - `YTDLP_COOKIE_FILE`
+- `FUNASR_LITE_COOKIE_ROOT`
+- `YTDLP_COOKIE_ROOT`
 
-Project-local `.\secrets\cookies\all_cookies.txt` is only kept as a final fallback for compatibility.
+The Workbench UI additionally supports `auto / path / upload / none` cookies modes, and uploaded cookies are not bundled into `workflow_outputs.zip`.
 
 ## Diagnostics script (optional)
 If you want detailed timing / GPU memory / cache hints:
@@ -173,6 +193,7 @@ uv run python tools/asr_test2_print.py
 - First run may download model weights into user cache (ModelScope / HuggingFace caches).
 - Speaker diarization V1 automatically switches to a timestamp-capable Paraformer model plus `ct-punc-c` and `cam++`.
 - V1 is aimed at single-channel recordings where speakers mostly take turns. Heavy overlap is still a known weak spot.
+- `.codex/agents.md` is now used as the default prompt bundle when present, and can be combined with `prompts/*.md` inside Audio Workbench V2.
 - If you hit OOM, try lowering:
   - `--batch-size-s` (e.g., 10 -> 5)
   - `--max-single-segment-ms` (e.g., 30000 -> 15000)

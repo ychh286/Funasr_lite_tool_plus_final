@@ -16,4 +16,5 @@ dependencies = [
 
 [project.scripts]
 funasr-lite = "funasr_lite.cli:main"
-funasr-lite-web = "funasr_lite.webui:main"
+funasr-lite-web = "funasr_lite.webui_workbench:main"
+funasr-lite-web-legacy = "funasr_lite.webui:main"
