@@ -6,8 +6,6 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from funasr import AutoModel
-
 from .config import (
     DecodeConfig,
     ModelConfig,
@@ -18,7 +16,7 @@ from .config import (
 )
 
 
-_MODEL_CACHE: Dict[tuple, AutoModel] = {}
+_MODEL_CACHE: Dict[tuple, Any] = {}
 
 
 def _filter_kwargs_for_callable(callable_obj: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -74,7 +72,25 @@ class TranscribeResult:
     meta: Dict[str, Any]
 
 
-def get_or_init_model(model_cfg: ModelConfig, decode_cfg: DecodeConfig) -> Tuple[AutoModel, ModelInitInfo]:
+def _automodel_class() -> Any:
+    """延迟导入 FunASR AutoModel。
+
+    功能：
+        允许测试、GUI 配置页和非转写命令在未安装 FunASR 时仍可导入本模块。
+        真正开始转写时才要求运行环境具备 FunASR。
+
+    返回值：
+        `funasr.AutoModel` 类。
+    """
+
+    try:
+        from funasr import AutoModel
+    except ImportError as exc:  # pragma: no cover - 取决于本地环境
+        raise RuntimeError("FunASR is not installed. Install project dependencies before transcription.") from exc
+    return AutoModel
+
+
+def get_or_init_model(model_cfg: ModelConfig, decode_cfg: DecodeConfig) -> Tuple[Any, ModelInitInfo]:
     disable_cache = os.getenv("FUNASR_LITE_DISABLE_MODEL_CACHE", "").strip().lower() in {
         "1",
         "true",
@@ -99,6 +115,7 @@ def get_or_init_model(model_cfg: ModelConfig, decode_cfg: DecodeConfig) -> Tuple
         )
 
     t0 = time.perf_counter()
+    AutoModel = _automodel_class()
 
     init_kwargs: Dict[str, Any] = {
         "model": model_cfg.model_id,

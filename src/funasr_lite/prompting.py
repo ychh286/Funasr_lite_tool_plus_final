@@ -225,12 +225,22 @@ def render_final_markdown(
     source_value: str = "",
     include_prompt: bool = False,
     include_transcript: bool = False,
+    llm_error: str = "",
 ) -> str:
     parts = [f"# {title.strip() or '音视频总结'}", ""]
     if source_value:
         parts.extend([f"- 来源: {source_value}", ""])
     if llm_output.strip():
         parts.extend([llm_output.strip(), ""])
+    elif llm_error.strip():
+        parts.extend(
+            [
+                f"> LLM 总结失败：{llm_error.strip()}",
+                "> 下面保留可复制给 agent 的汇总提示词，当前文件不是大模型总结结果。",
+                "",
+            ]
+        )
+        include_prompt = True
     else:
         parts.extend(
             [

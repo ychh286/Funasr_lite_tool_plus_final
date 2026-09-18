@@ -19,7 +19,7 @@ except Exception:
 from .brave_search import BraveSearchSettings
 from .config import DEFAULT_SCENARIO, MODEL_PRESETS, PUNC_PRESETS, SCENARIO_PRESETS, VAD_PRESETS
 from .followup_chat import load_followup_session, new_session_id, run_followup_turn
-from .llm_client import LLMSettings, OpenAICompatibleClient
+from .llm_client import DEFAULT_LLM_TIMEOUT_SECONDS, LLM_MODEL_CHOICES, LLMSettings, OpenAICompatibleClient, default_llm_api_key_env, default_llm_base_url, default_llm_model
 from .local_dialogs import choose_directory, format_runtime_status_markdown
 from .pipeline_workflow import MEDIA_EXTENSIONS, inspect_audio_workflow_environment, run_audio_workflow
 from .prompting import default_prompt_labels, profile_prompt_label, prompt_labels
@@ -33,6 +33,9 @@ from .webui import (
     _topbar_html,
 )
 from .workflow_profiles import get_workflow_profile, get_workflow_profiles
+
+
+SINGLE_INPUT_FILE_TYPES = ["audio", "video", ".txt", ".md"]
 
 
 WORKBENCH_CSS = TECH_CSS + r"""
@@ -56,7 +59,7 @@ def _workflow_hero_html() -> str:
       <div class="eyebrow">Audio / Video Workbench V2</div>
       <div class="workflow-hero-title">完整工作流、批量转写、总结追问，分三条线做。</div>
       <div class="hero-copy">
-        默认入口继续负责“链接/本地媒体 → 下载 → 预处理 → 转写 → Prompt 组合 → LLM 总结”。
+        默认入口继续负责“链接/本地媒体 → 下载 → 预处理 → 转写 → Prompt 组合 → LLM 总结”，也支持已有转写稿直接总结。
         同时保留批量转写能力，并新增总结后的多轮追问与可选 Brave 联网补充。
       </div>
       <div class="hero-chips">
@@ -584,7 +587,7 @@ def main() -> None:
             with gr.Row(elem_classes=["hero-grid"]):
                 gr.HTML(_workflow_hero_html())
                 with gr.Column(elem_classes=["hero-aside"]):
-                    gr.HTML(_metric_card_html("完整工作流", "Single input", "单素材端到端处理，最适合接 Prompt 与 LLM。"))
+                    gr.HTML(_metric_card_html("完整工作流", "Single input", "单素材端到端处理，也支持已有转写稿直接总结。"))
                     gr.HTML(_metric_card_html("批量转写", "Legacy batch", "保留多文件转写入口，但不强绑单一 final_summary。"))
                     gr.HTML(_metric_card_html("追问改写", "Cached follow-up", "围绕既有 run 目录继续追问和改写，不污染目标导出路径。"))
 
@@ -593,9 +596,9 @@ def main() -> None:
                     with gr.Row(equal_height=False, elem_classes=["workflow-grid"]):
                         with gr.Column(elem_classes=["workflow-sidebar"]):
                             with gr.Column(elem_classes=["glass-card", "tech-panel"]):
-                                gr.Markdown("### 1. 输入源与路由配置\n`Profile / 本地路由配置` 负责默认 tag、prompt 与目录；`Prompt` 负责真正喂给总结模型的指令文本。")
+                                gr.Markdown("### 1. 输入源与路由配置\n`Profile / 本地路由配置` 负责默认 tag、prompt 与目录；本地 `.txt/.md` 会跳过 ffmpeg/FunASR，直接进入总结。")
                                 source_url = gr.Textbox(label="视频/音频链接", placeholder="Bilibili / YouTube / 其他 yt-dlp 支持链接")
-                                uploaded_media = gr.File(label="或上传本地媒体", file_types=["audio", "video"], type="filepath")
+                                uploaded_media = gr.File(label="或上传本地媒体/转写稿", file_types=SINGLE_INPUT_FILE_TYPES, type="filepath")
                                 profile_key = gr.Dropdown(choices=profile_keys, value="auto", label="Profile / 本地路由配置")
                                 gr.HTML(_profiles_help_html())
                                 tag = gr.Textbox(label="标签", placeholder="#组会 / #项目会 / #人文 / #技术 ...")
@@ -655,15 +658,15 @@ def main() -> None:
                             with gr.Column(elem_classes=["glass-card", "tech-panel"]):
                                 gr.Markdown("### 5. LLM 总结与导出\n第一轮总结默认严格基于 transcript；联网补充会放到追问阶段。")
                                 run_llm = gr.Checkbox(label="调用大模型生成 final_summary.md", value=False)
-                                llm_base_url = gr.Textbox(label="Base URL", value=os.getenv("FUNASR_LITE_LLM_BASE_URL", "http://127.0.0.1:4000/v1"))
-                                llm_model = gr.Textbox(label="Model", value=os.getenv("FUNASR_LITE_LLM_MODEL", "gpt-5.4"))
+                                llm_base_url = gr.Textbox(label="Base URL", value=default_llm_base_url(), info="LiteLLM 默认 http://127.0.0.1:4000/v1")
+                                llm_model = gr.Dropdown(choices=list(LLM_MODEL_CHOICES), value=default_llm_model(), label="Model", allow_custom_value=True)
                                 llm_api_key = gr.Textbox(label="API Key（可留空走环境变量）", type="password")
-                                llm_api_key_env = gr.Textbox(label="API Key 环境变量名", value=os.getenv("FUNASR_LITE_LLM_API_KEY_ENV", "LITELLM_API_KEY"))
+                                llm_api_key_env = gr.Textbox(label="API Key 环境变量名", value=default_llm_api_key_env())
                                 llm_temperature = gr.Slider(0, 2, value=0.1, step=0.05, label="Temperature")
-                                llm_timeout_seconds = gr.Slider(30, 900, value=180, step=30, label="Timeout seconds")
+                                llm_timeout_seconds = gr.Slider(30, 1800, value=DEFAULT_LLM_TIMEOUT_SECONDS, step=30, label="Timeout seconds")
                                 include_prompt_in_final = gr.Checkbox(label="在 final_summary.md 末尾附完整 prompt", value=False)
                                 include_transcript_in_final = gr.Checkbox(label="在 final_summary.md 末尾附转写全文", value=False)
-                                write_note = gr.Checkbox(label="同时写入 note_root / profile 建议路径", value=False)
+                                write_note = gr.Checkbox(label="设置 note_root / profile 建议路径时同步写入 Markdown", value=True)
                                 overwrite_note = gr.Checkbox(label="允许覆盖已有同名笔记", value=False)
                                 with gr.Row():
                                     check_llm_btn = gr.Button("检查 LLM 连接", variant="secondary")
@@ -728,12 +731,12 @@ def main() -> None:
                                 gr.Markdown("### 2. 追问参数\n这里的追问只会修改 run 目录缓存中的“当前工作摘要”，不会改动目标导出目录。")
                                 followup_question = gr.Textbox(label="追问内容", lines=6, placeholder="例如：请把这个总结改成更适合发给导师的版本；补充行动项；列出不确定点。")
                                 followup_update_summary = gr.Checkbox(label="允许根据追问更新当前工作摘要", value=True)
-                                followup_llm_base_url = gr.Textbox(label="追问 LLM Base URL", value=os.getenv("FUNASR_LITE_LLM_BASE_URL", "http://127.0.0.1:4000/v1"))
-                                followup_llm_model = gr.Textbox(label="追问 LLM Model", value=os.getenv("FUNASR_LITE_LLM_MODEL", "gpt-5.4"))
+                                followup_llm_base_url = gr.Textbox(label="追问 LLM Base URL", value=default_llm_base_url(), info="LiteLLM 默认 http://127.0.0.1:4000/v1")
+                                followup_llm_model = gr.Dropdown(choices=list(LLM_MODEL_CHOICES), value=default_llm_model(), label="追问 LLM Model", allow_custom_value=True)
                                 followup_llm_api_key = gr.Textbox(label="追问 LLM API Key（可留空走环境变量）", type="password")
-                                followup_llm_api_key_env = gr.Textbox(label="追问 LLM API Key 环境变量名", value=os.getenv("FUNASR_LITE_LLM_API_KEY_ENV", "LITELLM_API_KEY"))
+                                followup_llm_api_key_env = gr.Textbox(label="追问 LLM API Key 环境变量名", value=default_llm_api_key_env())
                                 followup_llm_temperature = gr.Slider(0, 2, value=0.1, step=0.05, label="追问 Temperature")
-                                followup_llm_timeout = gr.Slider(30, 900, value=180, step=30, label="追问 Timeout seconds")
+                                followup_llm_timeout = gr.Slider(30, 1800, value=DEFAULT_LLM_TIMEOUT_SECONDS, step=30, label="追问 Timeout seconds")
 
                             with gr.Column(elem_classes=["glass-card", "tech-panel"]):
                                 gr.Markdown("### 3. Brave 联网补充（可选）\n参考 paper-workbench-v2 的做法，只在追问阶段作为外部背景使用，不覆盖 transcript 证据。")

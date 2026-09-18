@@ -8,17 +8,91 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 
+LITELLM_LLM_BASE_URL = "http://127.0.0.1:4000/v1"
+LITELLM_LLM_API_KEY_ENV = "LITELLM_API_KEY"
+DEEPSEEK_V4_PRO_MODEL = "deepseek-v4-pro"
+CPA_GPT56_SOL_MODEL = "gpt-5.6-sol"
+CPA_GPT56_LUNA_MODEL = "gpt-5.6-luna"
+CPA_GPT56_TERRA_MODEL = "gpt-5.6-terra"
+CPA_GPT55_MODEL = "gpt-5.5"
+CPA_GPT54_MODEL = "gpt-5.4"
+LLM_MODEL_CHOICES = (
+    CPA_GPT56_SOL_MODEL,
+    CPA_GPT56_LUNA_MODEL,
+    CPA_GPT56_TERRA_MODEL,
+    CPA_GPT55_MODEL,
+    DEEPSEEK_V4_PRO_MODEL,
+    CPA_GPT54_MODEL,
+)
+DEFAULT_LLM_BASE_URL = LITELLM_LLM_BASE_URL
+DEFAULT_LLM_MODEL = CPA_GPT56_SOL_MODEL
+DEFAULT_LLM_API_KEY_ENV = LITELLM_LLM_API_KEY_ENV
+DEFAULT_LLM_TIMEOUT_SECONDS = 1200
+DEFAULT_LLM_REASONING_EFFORT = "high"
+
+
+def _read_windows_registry_env(name: str) -> str:
+    """读取 Windows 持久环境变量，避免新开进程没有继承用户级 API key。"""
+
+    if os.name != "nt":
+        return ""
+    try:
+        import winreg
+    except Exception:  # noqa: BLE001
+        return ""
+
+    locations = [
+        (winreg.HKEY_CURRENT_USER, r"Environment"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+    ]
+    for hive, subkey in locations:
+        try:
+            with winreg.OpenKey(hive, subkey) as key:
+                value, _value_type = winreg.QueryValueEx(key, name)
+        except OSError:
+            continue
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _get_env(name: str) -> str:
+    """读取当前进程或 Windows 持久环境变量。"""
+
+    return (os.getenv(name) or _read_windows_registry_env(name) or "").strip()
+
+
+def default_llm_base_url() -> str:
+    """返回当前本地 LLM 入口，优先允许项目环境变量覆盖 LiteLLM 默认值。"""
+
+    return (_get_env("FUNASR_LITE_LLM_BASE_URL") or _get_env("LITELLM_BASE_URL") or DEFAULT_LLM_BASE_URL).strip()
+
+
+def default_llm_model() -> str:
+    """返回默认总结模型；默认走 LiteLLM 转发的 GPT-5.6 Sol。"""
+
+    return (_get_env("FUNASR_LITE_LLM_MODEL") or DEFAULT_LLM_MODEL).strip()
+
+
+def default_llm_api_key_env() -> str:
+    """返回 API key 环境变量名；默认读取 LITELLM_API_KEY。"""
+
+    return (_get_env("FUNASR_LITE_LLM_API_KEY_ENV") or DEFAULT_LLM_API_KEY_ENV).strip()
+
+
 @dataclass(frozen=True)
 class LLMSettings:
     """Runtime settings for an OpenAI-compatible chat/completions endpoint."""
 
     enabled: bool = False
-    base_url: str = "http://127.0.0.1:4000/v1"
-    model: str = "gpt-5.4"
+    base_url: str = DEFAULT_LLM_BASE_URL
+    model: str = DEFAULT_LLM_MODEL
     api_key: str = ""
-    api_key_env: str = "LITELLM_API_KEY"
-    timeout_seconds: int = 180
+    api_key_env: str = DEFAULT_LLM_API_KEY_ENV
+    timeout_seconds: int = DEFAULT_LLM_TIMEOUT_SECONDS
     temperature: float = 0.1
+    reasoning_effort: str = DEFAULT_LLM_REASONING_EFFORT
 
     def resolved_api_key(self) -> str:
         key = (self.api_key or "").strip()
@@ -26,7 +100,7 @@ class LLMSettings:
             return key
         env_name = (self.api_key_env or "").strip()
         if env_name:
-            return (os.getenv(env_name, "") or "").strip()
+            return _get_env(env_name)
         return ""
 
 
@@ -121,8 +195,12 @@ class OpenAICompatibleClient:
         payload: dict[str, Any] = {
             "model": self.settings.model,
             "messages": messages,
-            "temperature": self.settings.temperature if temperature is None else temperature,
         }
+        if not self.settings.model.startswith("gpt-5.6-"):
+            payload["temperature"] = self.settings.temperature if temperature is None else temperature
+        reasoning_effort = self.settings.reasoning_effort.strip()
+        if self.settings.model.startswith("gpt-5.6-") and reasoning_effort:
+            payload["reasoning_effort"] = reasoning_effort
         if max_tokens is not None and max_tokens > 0:
             payload["max_tokens"] = int(max_tokens)
         data = self._post_json(payload)

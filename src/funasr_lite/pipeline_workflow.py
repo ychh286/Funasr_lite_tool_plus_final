@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib.metadata as importlib_metadata
 import os
 import re
 import shutil
@@ -12,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from .brave_search import BraveSearchClient, BraveSearchSettings, format_web_results
 from .config import (
     DecodeConfig,
     MODEL_PRESETS,
@@ -26,7 +28,7 @@ from .config import (
 )
 from .core import TranscribeResult, transcribe_file
 from .formatting import postprocess_text, split_lines_by_punct
-from .llm_client import LLMSettings, OpenAICompatibleClient
+from .llm_client import DEFAULT_LLM_API_KEY_ENV, DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MODEL, DEFAULT_LLM_TIMEOUT_SECONDS, LLMSettings, OpenAICompatibleClient
 from .prompting import (
     clean_transcript_text,
     compose_summary_prompt,
@@ -51,6 +53,8 @@ MEDIA_EXTENSIONS = {
     ".mp4", ".mkv", ".webm", ".mov", ".avi", ".flv", ".m4v",
     ".m4a", ".mp3", ".wav", ".aac", ".flac", ".ogg", ".opus",
 }
+TRANSCRIPT_EXTENSIONS = {".txt", ".md"}
+LOCAL_INPUT_EXTENSIONS = MEDIA_EXTENSIONS | TRANSCRIPT_EXTENSIONS
 ProgressFn = Callable[[float, str], None]
 
 
@@ -101,6 +105,8 @@ def run_command(cmd: list[str], *, cwd: Path | None = None, capture_output: bool
         )
     except FileNotFoundError as exc:
         raise RuntimeError(f"Executable not found: {cmd[0]}") from exc
+    except OSError as exc:
+        raise RuntimeError(f"Failed to run executable {cmd[0]}: {exc}") from exc
     except subprocess.CalledProcessError as exc:
         stdout = exc.stdout or ""
         stderr = exc.stderr or ""
@@ -127,8 +133,10 @@ def resolve_executable(
     raw = (explicit_path or "").strip().strip('"')
     if raw:
         p = Path(raw).expanduser()
-        if p.exists():
+        if p.exists() and p.is_file():
             return str(p)
+        if p.exists() and p.is_dir():
+            raise RuntimeError(f"{name} path points to a directory, not an executable file: {raw}")
         found = shutil.which(raw)
         if found:
             return found
@@ -139,8 +147,10 @@ def resolve_executable(
         if not env_value:
             continue
         p = Path(env_value).expanduser()
-        if p.exists():
+        if p.exists() and p.is_file():
             return str(p)
+        if p.exists() and p.is_dir():
+            raise RuntimeError(f"{env_name} points to a directory, not an executable file: {env_value}")
         found = shutil.which(env_value)
         if found:
             return found
@@ -162,7 +172,7 @@ def resolve_executable(
         ])
 
     for candidate in candidates:
-        if candidate.exists():
+        if candidate.exists() and candidate.is_file():
             return str(candidate)
 
     found = shutil.which(name)
@@ -370,11 +380,45 @@ def resolve_input_media(
         return media, meta, source_url
     media_paths = _as_path_list(uploaded_media)
     if not media_paths:
-        raise RuntimeError("请提供一个视频/音频链接，或上传一个本地媒体文件。")
+        raise RuntimeError("请提供一个视频/音频链接，或上传一个本地媒体文件/转写稿。")
     media = media_paths[0].expanduser().resolve()
     if not media.exists():
-        raise RuntimeError(f"Uploaded/local media not found: {media}")
-    return media, {"tool": "local_upload"}, str(media)
+        raise RuntimeError(f"Uploaded/local input not found: {media}")
+    if media.suffix.lower() not in LOCAL_INPUT_EXTENSIONS:
+        raise RuntimeError(f"本地文件后缀不是支持的音视频或转写稿格式：{media.suffix or '<none>'}")
+    if media.suffix.lower() in TRANSCRIPT_EXTENSIONS:
+        return media, {"tool": "local_transcript", "input_kind": "transcript"}, str(media)
+    return media, {"tool": "local_upload", "input_kind": "media"}, str(media)
+
+
+def import_existing_transcript(transcript_path: Path, out_dir: Path) -> tuple[str, str, Path, Path, Path | None, Path | None, dict[str, Any]]:
+    """把已有转写稿导入单次 run，跳过 ffmpeg 和 FunASR。
+
+    功能：支持 GUI 直接选择 `.txt` / `.md` 转写稿做 prompt 组合和 LLM 总结。
+    关键参数：
+        transcript_path：用户选择的本地转写稿。
+        out_dir：当前 run 目录，用于写入标准化的 `transcript.md` / `transcript.txt`。
+    返回值：
+        与 `transcribe_prepared_wav` 相同形状的转写结果元组。
+    状态影响：
+        只在当前 run 目录写入标准化转写文件，不修改原始转写稿。
+    调用时机：
+        `run_audio_workflow` 检测到本地输入后缀为 `.txt` 或 `.md` 时。
+    """
+
+    raw_text = transcript_path.read_text(encoding="utf-8", errors="replace")
+    transcript_md = out_dir / "transcript.md"
+    transcript_txt = out_dir / "transcript.txt"
+    normalized_markdown = raw_text.strip()
+    transcript_md.write_text((normalized_markdown + "\n") if normalized_markdown else "", encoding="utf-8")
+    cleaned = clean_transcript_text(raw_text)
+    transcript_txt.write_text(cleaned, encoding="utf-8")
+    meta = {
+        "input_kind": "transcript",
+        "source_transcript_path": str(transcript_path),
+        "transcribe_skipped": True,
+    }
+    return cleaned, "", transcript_md, transcript_txt, None, None, meta
 
 
 def preprocess_to_wav(media: Path, out_dir: Path, *, ffmpeg_path: str = "") -> tuple[Path, dict[str, Any]]:
@@ -410,12 +454,18 @@ def transcribe_prepared_wav(
     vad_preset: str, vad_custom: str, punc_preset: str, punc_custom: str, language: str, device: str,
     use_itn: bool, merge_vad: bool, speaker_diarization: bool, speaker_count: int, verbose: bool,
     batch_size_s: int, max_single_segment_ms: int, merge_length_s: int, split_lines: bool,
+    output_fmt: str = "md",
 ) -> tuple[str, str, Path, Path, Path | None, Path | None, dict[str, Any]]:
+    ensure_python_runtime_ready()
+    normalized_device = (device or "auto").strip()
+    if normalized_device.startswith("cuda:"):
+        # FunASR's AutoModel historically accepts "cuda" more reliably than indexed names.
+        normalized_device = "cuda"
     model_cfg = ModelConfig(
         model_id=_resolve_model_id(model_preset, model_custom),
         vad_model_id=_resolve_vad_id(vad_preset, vad_custom),
         punc_model_id=_resolve_punc_id(punc_preset, punc_custom),
-        device=None if device == "auto" else device,
+        device=None if normalized_device == "auto" else normalized_device,
         disable_update=True,
     )
     if speaker_diarization:
@@ -426,7 +476,10 @@ def transcribe_prepared_wav(
         merge_length_s=int(merge_length_s), max_single_segment_ms=int(max_single_segment_ms),
         preset_spk_num=int(speaker_count) if int(speaker_count) > 0 else None,
     )
-    output_cfg = OutputConfig(fmt="md", split_lines=bool(split_lines))
+    normalized_fmt = (output_fmt or "md").lower().strip(".")
+    if normalized_fmt not in {"md", "txt"}:
+        normalized_fmt = "md"
+    output_cfg = OutputConfig(fmt=normalized_fmt, split_lines=bool(split_lines))
     obs_cfg = ObsConfig(verbose=bool(verbose))
     result: TranscribeResult = transcribe_file(str(wav_path), model_cfg=model_cfg, decode_cfg=decode_cfg, output_cfg=output_cfg, obs_cfg=obs_cfg)
     text = postprocess_text(result.text)
@@ -435,15 +488,19 @@ def transcribe_prepared_wav(
     transcript_md = out_dir / "transcript.md"
     transcript_txt = out_dir / "transcript.txt"
     save_text(text, transcript_md, fmt="md", split_lines=split_lines, source_name=wav_path.stem)
-    transcript_txt.write_text(clean_transcript_text(transcript_md.read_text(encoding="utf-8")), encoding="utf-8")
+    if normalized_fmt == "txt":
+        transcript_txt.write_text(clean_transcript_text(text), encoding="utf-8")
+    else:
+        transcript_txt.write_text(clean_transcript_text(transcript_md.read_text(encoding="utf-8")), encoding="utf-8")
     speaker_text = ""
     speaker_md: Path | None = None
     speaker_json: Path | None = None
     if speaker_diarization and result.segments:
-        speaker_md = out_dir / "transcript_speakers.md"
+        speaker_fmt = normalized_fmt
+        speaker_md = out_dir / ("transcript_speakers.txt" if speaker_fmt == "txt" else "transcript_speakers.md")
         speaker_json = out_dir / "transcript_speakers.json"
-        speaker_text = render_speaker_content(result.segments, fmt="md", source_name=wav_path.stem).strip()
-        save_speaker_text(result.segments, speaker_md, fmt="md", source_name=wav_path.stem)
+        speaker_text = render_speaker_content(result.segments, fmt=speaker_fmt, source_name=wav_path.stem).strip()
+        save_speaker_text(result.segments, speaker_md, fmt=speaker_fmt, source_name=wav_path.stem)
         save_json(result.segments, speaker_json)
     meta = {"scenario": scenario_name, "model_cfg": asdict(model_cfg), "decode_cfg": asdict(decode_cfg), "output_cfg": asdict(output_cfg), "transcribe_meta": result.meta}
     return text, speaker_text, transcript_md, transcript_txt, speaker_md, speaker_json, meta
@@ -461,6 +518,100 @@ def _path_or_none(raw: str) -> Path | None:
     if not raw:
         return None
     return Path(raw).expanduser()
+
+
+def inspect_python_runtime() -> dict[str, Any]:
+    """检查转写所需 Python 依赖是否能被 FunASR/ModelScope 正常发现。
+
+    功能：提前发现 `.venv` 中包元数据损坏、ModelScope 导入失败等问题，避免
+    用户等到 ffmpeg 处理完成后才在 FunASR 初始化阶段失败。
+    关键参数：无。
+    返回值：包含 `ok`、`versions`、`errors` 和面向 GUI 展示的 `status`。
+    状态影响：只读取 Python 包元数据并尝试导入，不写文件、不下载模型。
+    调用时机：GUI 环境检查和进入真实 FunASR 转写前。
+    """
+
+    versions: dict[str, str] = {}
+    errors: list[str] = []
+    for package in ("funasr", "modelscope", "torch"):
+        try:
+            version = importlib_metadata.version(package)
+        except importlib_metadata.PackageNotFoundError:
+            errors.append(f"{package} 未安装")
+            continue
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{package} 元数据读取失败：{exc}")
+            continue
+        if not version:
+            errors.append(f"{package} 元数据缺少 Version，可能是依赖安装被中断")
+            versions[package] = "<missing>"
+        else:
+            versions[package] = str(version)
+
+    try:
+        import modelscope  # noqa: F401
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"modelscope 导入失败：{exc}")
+
+    status = (
+        "✅ FunASR / ModelScope / torch 运行时可导入"
+        if not errors
+        else "❌ " + "；".join(errors)
+    )
+    return {"ok": not errors, "versions": versions, "errors": errors, "status": status}
+
+
+def ensure_python_runtime_ready() -> None:
+    """在真实转写前阻断已知损坏的 Python 运行时。
+
+    功能：把包元数据损坏、ModelScope 导入失败等问题转换成清晰的 `RuntimeError`。
+    关键参数：无。
+    返回值：无；异常表示当前环境不能可靠启动 FunASR。
+    状态影响：无文件写入；只做只读依赖检查。
+    调用时机：`transcribe_prepared_wav` 进入 `transcribe_file` 之前。
+    """
+
+    runtime = inspect_python_runtime()
+    if not runtime["ok"]:
+        raise RuntimeError(
+            "Python/FunASR 运行时异常，无法开始转写："
+            + "；".join(str(item) for item in runtime.get("errors", []))
+        )
+
+
+def _media_input_status(*, source_url: str, uploaded_media: object) -> str:
+    """给环境检查生成输入源状态，和真实运行入口保持同一套基本规则。"""
+
+    has_url = bool((source_url or "").strip())
+    media_paths = _as_path_list(uploaded_media)
+    if has_url and media_paths:
+        return "⚠️ 同时提供 URL 与本地媒体；运行时将优先使用 URL。"
+    if has_url:
+        return "✅ URL 输入已填写。"
+    if not media_paths:
+        return "❌ 请提供一个视频/音频链接，或选择一个本地媒体文件/转写稿。"
+    media = media_paths[0].expanduser()
+    if not media.exists():
+        return f"❌ 本地文件不存在：{media}"
+    if not media.is_file():
+        return f"❌ 本地输入不是文件：{media}"
+    if media.suffix.lower() in TRANSCRIPT_EXTENSIONS:
+        return f"✅ 本地转写稿可读取，将跳过 ffmpeg/FunASR：{media}"
+    if media.suffix.lower() not in MEDIA_EXTENSIONS:
+        return f"❌ 文件后缀不是支持的音视频或转写稿格式：{media.suffix or '<none>'}"
+    return f"✅ 本地媒体可读取：{media}"
+
+
+def _directory_target_status(raw: str, *, default_path: Path, label: str) -> str:
+    """只读检查输出类目录是否可作为根目录使用。"""
+
+    target = _path_or_none(raw) or default_path
+    if target.exists() and not target.is_dir():
+        return f"❌ {label} 指向现有文件，不是目录：{target}"
+    existing = target if target.exists() else next((parent for parent in target.parents if parent.exists()), None)
+    if existing and not os.access(existing, os.W_OK):
+        return f"❌ {label} 的上级目录不可写：{existing}"
+    return f"✅ {label} 可用：{target}"
 
 
 def build_bundle(out_dir: Path, files: list[Path]) -> Path:
@@ -495,10 +646,12 @@ def run_audio_workflow(
     punc_preset: str = "none", punc_custom: str = "", language: str = "auto", device: str = "auto",
     use_itn: bool = True, merge_vad: bool = True, speaker_diarization: bool = False, speaker_count: int = 0,
     verbose: bool = False, batch_size_s: int = 10, max_single_segment_ms: int = 30000, merge_length_s: int = 15,
-    split_lines: bool = True, run_llm: bool = False, llm_base_url: str = "http://127.0.0.1:4000/v1",
-    llm_model: str = "gpt-5.4", llm_api_key: str = "", llm_api_key_env: str = "LITELLM_API_KEY",
-    llm_temperature: float = 0.1, llm_timeout_seconds: int = 180, include_prompt_in_final: bool = False,
+    split_lines: bool = True, run_llm: bool = False, llm_base_url: str = DEFAULT_LLM_BASE_URL,
+    llm_model: str = DEFAULT_LLM_MODEL, llm_api_key: str = "", llm_api_key_env: str = DEFAULT_LLM_API_KEY_ENV,
+    llm_temperature: float = 0.1, llm_timeout_seconds: int = DEFAULT_LLM_TIMEOUT_SECONDS, include_prompt_in_final: bool = False,
     include_transcript_in_final: bool = False, write_note: bool = False, overwrite_note: bool = False,
+    enable_web_search: bool = False, brave_api_key: str = "", brave_api_key_env: str = "BRAVE_SEARCH_API_KEY",
+    brave_count: int = 5, brave_timeout_seconds: int = 25,
     progress: ProgressFn | None = None,
 ) -> AudioWorkflowResult:
     _report(progress, 0.01, "初始化运行目录")
@@ -522,7 +675,8 @@ def run_audio_workflow(
         ytdlp_path=ytdlp_path, ffmpeg_path=ffmpeg_path,
     )
     managed_media_path = source_media
-    if detected_profile and effective_download_root and source_media.exists():
+    input_is_transcript = source_media.suffix.lower() in TRANSCRIPT_EXTENSIONS
+    if detected_profile and effective_download_root and source_media.exists() and not input_is_transcript:
         try:
             candidate = build_managed_media_path(detected_profile, source_media, download_root=effective_download_root)
             if candidate != source_media:
@@ -533,26 +687,58 @@ def run_audio_workflow(
         except Exception:
             managed_media_path = source_media
 
-    _report(progress, 0.22, "ffmpeg 预处理为 16k 单声道 WAV")
-    wav_path, ffmpeg_meta = preprocess_to_wav(managed_media_path, out_dir, ffmpeg_path=ffmpeg_path)
-    if is_url(source_value) and not keep_download and not effective_download_root:
-        try:
-            managed_media_path.unlink(missing_ok=True)
-        except OSError:
-            pass
+    wav_path: Path | None = None
+    if input_is_transcript:
+        _report(progress, 0.22, "读取已有转写稿，跳过 ffmpeg/FunASR")
+        ffmpeg_meta = {"tool": "skipped", "reason": "input_is_transcript"}
+        transcript_text, speaker_text, transcript_md, transcript_txt, speaker_md, speaker_json, asr_meta = import_existing_transcript(managed_media_path, out_dir)
+    else:
+        _report(progress, 0.22, "ffmpeg 预处理为 16k 单声道 WAV")
+        wav_path, ffmpeg_meta = preprocess_to_wav(managed_media_path, out_dir, ffmpeg_path=ffmpeg_path)
+        if is_url(source_value) and not keep_download and not effective_download_root:
+            try:
+                managed_media_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
-    _report(progress, 0.38, "FunASR 转写")
-    transcript_text, speaker_text, transcript_md, transcript_txt, speaker_md, speaker_json, asr_meta = transcribe_prepared_wav(
-        wav_path, out_dir, scenario_name=scenario_name, model_preset=model_preset, model_custom=model_custom,
-        vad_preset=vad_preset, vad_custom=vad_custom, punc_preset=punc_preset, punc_custom=punc_custom,
-        language=language, device=device, use_itn=use_itn, merge_vad=merge_vad, speaker_diarization=speaker_diarization,
-        speaker_count=speaker_count, verbose=verbose, batch_size_s=batch_size_s, max_single_segment_ms=max_single_segment_ms,
-        merge_length_s=merge_length_s, split_lines=split_lines,
-    )
+        _report(progress, 0.38, "FunASR 转写")
+        transcript_text, speaker_text, transcript_md, transcript_txt, speaker_md, speaker_json, asr_meta = transcribe_prepared_wav(
+            wav_path, out_dir, scenario_name=scenario_name, model_preset=model_preset, model_custom=model_custom,
+            vad_preset=vad_preset, vad_custom=vad_custom, punc_preset=punc_preset, punc_custom=punc_custom,
+            language=language, device=device, use_itn=use_itn, merge_vad=merge_vad, speaker_diarization=speaker_diarization,
+            speaker_count=speaker_count, verbose=verbose, batch_size_s=batch_size_s, max_single_segment_ms=max_single_segment_ms,
+            merge_length_s=merge_length_s, split_lines=split_lines,
+        )
 
     _report(progress, 0.70, "组装 prompts")
     prompt_blocks = load_selected_prompts(selected_prompt_labels)
     prompt_blocks.extend(load_uploaded_prompt_files(uploaded_prompt_files))
+    web_search_meta: dict[str, Any] = {"enabled": bool(enable_web_search)}
+    if enable_web_search:
+        _report(progress, 0.72, "Brave Search 首轮联网补充")
+        try:
+            client = BraveSearchClient(
+                BraveSearchSettings(
+                    enabled=True,
+                    api_key=brave_api_key,
+                    api_key_env=brave_api_key_env,
+                    count=int(brave_count),
+                    timeout_seconds=int(brave_timeout_seconds),
+                )
+            )
+            if client.enabled:
+                # 只把联网结果作为“外部背景”放入 prompt，不让它覆盖转写证据。
+                query_seed = managed_media_path.stem or source_value
+                query = " ".join(part for part in [query_seed, effective_tag] if part).strip()
+                results = client.search(query, count=int(brave_count))
+                web_context = format_web_results(results)
+                if web_context:
+                    prompt_blocks.append(("brave_search/首轮外部背景", web_context))
+                web_search_meta.update({"query": query, "result_count": len(results)})
+            else:
+                web_search_meta["error"] = "Brave Search 未启用或缺少 API key。"
+        except Exception as exc:  # noqa: BLE001
+            web_search_meta["error"] = str(exc)
     note_target_path: Path | None = None
     if detected_profile and effective_note_root:
         note_target_path = build_suggested_note_path(detected_profile, managed_media_path, note_root=effective_note_root)
@@ -572,7 +758,7 @@ def run_audio_workflow(
     if run_llm:
         _report(progress, 0.78, "调用 OpenAI-compatible 大模型")
         settings = LLMSettings(enabled=True, base_url=llm_base_url, model=llm_model, api_key=llm_api_key, api_key_env=llm_api_key_env, timeout_seconds=int(llm_timeout_seconds), temperature=float(llm_temperature))
-        llm_meta.update({"base_url": llm_base_url, "model": llm_model, "temperature": float(llm_temperature), "api_key_env": llm_api_key_env, "api_key_supplied": bool((llm_api_key or "").strip())})
+        llm_meta.update({"base_url": llm_base_url, "model": llm_model, "temperature": float(llm_temperature), "reasoning_effort": settings.reasoning_effort, "api_key_env": llm_api_key_env, "api_key_supplied": bool((llm_api_key or "").strip())})
         try:
             client = OpenAICompatibleClient(settings)
             messages = [
@@ -592,6 +778,7 @@ def run_audio_workflow(
     final_text = render_final_markdown(
         llm_output=llm_output, prompt_text=prompt_text, transcript_text=transcript_txt.read_text(encoding="utf-8", errors="replace"),
         title=title or "音视频总结", source_value=source_value, include_prompt=include_prompt_in_final, include_transcript=include_transcript_in_final,
+        llm_error=str(llm_meta.get("error") or ""),
     )
     final_md.write_text(final_text, encoding="utf-8")
     written_note_path: Path | None = None
@@ -600,14 +787,15 @@ def run_audio_workflow(
         target = note_target_path if overwrite_note else unique_path(note_target_path)
         target.write_text(final_text, encoding="utf-8")
         written_note_path = target
+    primary_final_markdown = written_note_path or final_md
     manifest = {
         "created_at": datetime.now().isoformat(timespec="seconds"), "profile": detected_profile.key if detected_profile else "",
         "profile_name": detected_profile.display_name if detected_profile else "", "tag": effective_tag, "source_value": source_value,
         "source_media_path": str(managed_media_path), "output_dir": str(out_dir), "download_root": str(effective_download_root) if effective_download_root else "",
         "note_root": str(effective_note_root) if effective_note_root else "", "suggested_note_path": str(note_target_path) if note_target_path else "",
         "written_note_path": str(written_note_path) if written_note_path else "", "input": input_meta, "ffmpeg": ffmpeg_meta,
-        "asr": asr_meta, "prompts": [label for label, _ in prompt_blocks], "llm": llm_meta,
-        "files": {"wav": str(wav_path), "transcript_md": str(transcript_md), "transcript_txt": str(transcript_txt), "transcript_speakers_md": str(speaker_md) if speaker_md else "", "transcript_speakers_json": str(speaker_json) if speaker_json else "", "summary_prompt": str(prompt_path), "final_markdown": str(final_md)},
+        "asr": asr_meta, "prompts": [label for label, _ in prompt_blocks], "llm": llm_meta, "web_search": web_search_meta,
+        "files": {"wav": str(wav_path) if wav_path else "", "transcript_md": str(transcript_md), "transcript_txt": str(transcript_txt), "transcript_speakers_md": str(speaker_md) if speaker_md else "", "transcript_speakers_json": str(speaker_json) if speaker_json else "", "summary_prompt": str(prompt_path), "final_markdown": str(final_md), "written_note": str(written_note_path) if written_note_path else ""},
     }
     manifest_path = out_dir / "run_manifest.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -619,7 +807,7 @@ def run_audio_workflow(
     bundle_zip = build_bundle(out_dir, bundle_inputs)
     preview = speaker_text.strip() if speaker_text.strip() else transcript_text.strip()
     _report(progress, 1.0, "完成")
-    return AudioWorkflowResult(preview=preview, summary_preview=final_text.strip(), final_markdown_path=str(final_md), bundle_path=str(bundle_zip), manifest_path=str(manifest_path), meta=manifest)
+    return AudioWorkflowResult(preview=preview, summary_preview=final_text.strip(), final_markdown_path=str(primary_final_markdown), bundle_path=str(bundle_zip), manifest_path=str(manifest_path), meta=manifest)
 
 
 def inspect_audio_workflow_environment(
@@ -669,19 +857,40 @@ def inspect_audio_workflow_environment(
         if media_paths:
             source_kind = "local"
             source_value = str(media_paths[0].expanduser())
+    local_input_is_transcript = source_kind == "local" and Path(source_value).suffix.lower() in TRANSCRIPT_EXTENSIONS
 
     detected_profile = resolve_profile(profile_key, source_value)
     default_output_root = ROOT / "outputs" / "workbench_runs"
     out_root = _path_or_none(output_root) or (_path_or_none(detected_profile.output_root) if detected_profile and detected_profile.output_root else None) or default_output_root
     effective_download_root = _path_or_none(download_root) or (_path_or_none(detected_profile.download_root) if detected_profile and detected_profile.download_root else None)
     effective_note_root = _path_or_none(note_root) or (_path_or_none(detected_profile.note_root) if detected_profile and detected_profile.note_root else None)
+    input_status = _media_input_status(source_url=source_url, uploaded_media=uploaded_media)
+    output_root_status = _directory_target_status(str(out_root), default_path=out_root, label="运行输出根目录")
+    download_root_status = (
+        _directory_target_status(str(effective_download_root), default_path=effective_download_root, label="媒体归档目录")
+        if effective_download_root
+        else "未指定；URL 媒体保存在单次 run 内。"
+    )
+    note_root_status = (
+        _directory_target_status(str(effective_note_root), default_path=effective_note_root, label="总结笔记目录")
+        if effective_note_root
+        else "未指定；只生成 run 内 final_summary.md。"
+    )
+    runtime_status = (
+        {"ok": True, "versions": {}, "errors": [], "status": "已有转写稿输入：跳过 FunASR 运行时检查。"}
+        if local_input_is_transcript
+        else inspect_python_runtime()
+    )
 
     ffmpeg_status = "未检查"
-    try:
-        ffmpeg_bin = resolve_executable("ffmpeg", explicit_path=ffmpeg_path, env_names=("FUNASR_LITE_FFMPEG", "FFMPEG_BINARY", "IMAGEIO_FFMPEG_EXE"))
-        ffmpeg_status = f"`{ffmpeg_bin}`"
-    except Exception as exc:  # noqa: BLE001
-        ffmpeg_status = f"❌ {exc}"
+    if local_input_is_transcript:
+        ffmpeg_status = "已有转写稿输入：跳过 ffmpeg。"
+    else:
+        try:
+            ffmpeg_bin = resolve_executable("ffmpeg", explicit_path=ffmpeg_path, env_names=("FUNASR_LITE_FFMPEG", "FFMPEG_BINARY", "IMAGEIO_FFMPEG_EXE"))
+            ffmpeg_status = f"`{ffmpeg_bin}`"
+        except Exception as exc:  # noqa: BLE001
+            ffmpeg_status = f"❌ {exc}"
 
     if source_kind == "url":
         try:
@@ -710,6 +919,12 @@ def inspect_audio_workflow_environment(
         "resolved_output_root": str(out_root),
         "resolved_download_root": str(effective_download_root) if effective_download_root else "",
         "resolved_note_root": str(effective_note_root) if effective_note_root else "",
+        "input_status": input_status,
+        "output_root_status": output_root_status,
+        "download_root_status": download_root_status,
+        "note_root_status": note_root_status,
+        "python_runtime_status": runtime_status["status"],
+        "python_runtime": runtime_status,
         "ytdlp_status": ytdlp_status,
         "ffmpeg_status": ffmpeg_status,
         "cookie_status": cookie_status,

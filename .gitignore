@@ -40,3 +40,14 @@ workflow_profiles.local.json
 # OS
 .DS_Store
 Thumbs.db
+
+/.local_state/
+
+# 本地协作记录、维护工具与临时验证产物
+[Aa]gent_working_logs/
+.codex_tmp/
+/.maintenance/
+/tmp/
+/gui-default.png
+/gui-minimum.png
+.ruff_cache/

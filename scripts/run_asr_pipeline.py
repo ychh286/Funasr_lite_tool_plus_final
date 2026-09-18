@@ -314,8 +314,10 @@ def main() -> None:
     profile = get_workflow_profile(args.profile) if args.profile else detect_workflow_profile_from_input(args.input)
     default_output_root = str(ROOT / "outputs" / "transcripts")
     output_root_value = args.output_root or (profile.output_root if profile and profile.output_root else default_output_root)
-    download_root = Path(args.download_root).expanduser() if args.download_root else (Path(profile.download_root) if profile else None)
-    note_root = Path(args.note_root).expanduser() if args.note_root else (Path(profile.note_root) if profile else None)
+    profile_download_root = (profile.download_root or "").strip() if profile else ""
+    profile_note_root = (profile.note_root or "").strip() if profile else ""
+    download_root = Path(args.download_root).expanduser() if args.download_root else (Path(profile_download_root) if profile_download_root else None)
+    note_root = Path(args.note_root).expanduser() if args.note_root else (Path(profile_note_root) if profile_note_root else None)
     effective_tag = args.tag or (profile.tag if profile else "")
     effective_prompt_name = args.prompt or (profile.prompt_name if profile else "")
     download_mode = args.download_mode or ("video" if profile else "audio")

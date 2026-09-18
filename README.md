@@ -1,4 +1,4 @@
-# funasr-lite (CLI + Audio Workbench V2)
+# funasr-lite (CLI + WebUI + Desktop GUI)
 
 A local transcription utility built on FunASR, plus a project-local `yt-dlp -> ffmpeg -> transcript -> prompt -> LLM summary -> Markdown` workflow layer.
 
@@ -41,6 +41,42 @@ uv pip install -U funasr modelscope huggingface_hub soundfile gradio --index-url
 ```powershell
 uv pip install -e . --no-deps
 ```
+
+
+## Quick start: Desktop GUI（推荐给本地长期使用）
+
+本版新增 PySide6 本地桌面 GUI，目标是替代复杂 WebUI 页面，把三类任务分开：
+
+- `单条总结`：链接/本地单文件 -> 下载/预处理 -> FunASR -> Prompt -> 可选 LLM/Brave -> final_summary.md
+- `批量转写`：多个本地音视频 -> 预处理 -> 转写 -> 打包，不强制 LLM
+- `追问改写`：加载已有 run 目录 -> 基于 summary/transcript 继续追问或改写 -> 可确认写回 final_summary.md
+
+安装 GUI 依赖：
+
+```powershell
+uv pip install -e .[gui]
+```
+
+启动桌面 GUI：
+
+```powershell
+.\Start-FunASRGUI.ps1
+# 或双击 Start-FunASRGUI.cmd
+```
+
+如果首次启动提示缺少 PySide6，也可以直接运行：
+
+```powershell
+.\Start-FunASRGUI.ps1 -InstallGuiDependency
+```
+
+命令入口：
+
+```powershell
+uv run --active funasr-lite-gui
+```
+
+设计说明见 `docs/desktop_gui_design.md`。WebUI 仍保留，便于远程或浏览器场景使用。
 
 ## Quick start: Audio Workbench V2
 
@@ -216,10 +252,12 @@ OpenAI-compatible LLM settings can be provided in the UI or via environment vari
 
 ```powershell
 $env:FUNASR_LITE_LLM_BASE_URL = "http://127.0.0.1:4000/v1"
-$env:FUNASR_LITE_LLM_MODEL = "gpt-5.4"
+$env:FUNASR_LITE_LLM_MODEL = "gpt-5.6-sol"
 $env:FUNASR_LITE_LLM_API_KEY_ENV = "LITELLM_API_KEY"
 $env:LITELLM_API_KEY = "..."
 ```
+
+默认配置通过 LiteLLM 调用 CPA 的 `gpt-5.6-sol`，总结与追问请求使用 `high` 推理等级；GUI/WebUI 同时保留 Luna、Terra、GPT-5.5、DeepSeek 和 GPT-5.4 作为可选模型。
 
 The follow-up chat tab can reuse the same LLM settings, but it writes iterative summary revisions only into the run-local cache directory:
 
@@ -231,11 +269,14 @@ These follow-up cache files are intentionally **not** added to `workflow_outputs
 
 Optional Brave Search for follow-up chat:
 
+首轮总结也可以在桌面 GUI 中启用 Brave Search；结果会作为外部背景写入 prompt，不会覆盖转写证据。
+
+
 ```powershell
 $env:BRAVE_SEARCH_API_KEY = "..."
 ```
 
-Brave Search is only used as an optional external background source for follow-up questions. The first-round summary still stays transcript-first.
+Brave Search is used only when explicitly enabled, and is treated as optional external background. The first-round summary and follow-up answers remain transcript-first.
 
 External tool lookup order for V2:
 
