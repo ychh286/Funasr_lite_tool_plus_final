@@ -136,6 +136,10 @@ class OpenAICompatibleClient:
         return headers
 
     def _post_json(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """发送一次模型请求并返回JSON字典；payload为请求体，失败时抛出可读异常。
+
+        由chat_text调用，只产生网络IO；云端CPA凭据配置走直连，其他后端保留原代理行为。
+        """
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(
             self.chat_url,
@@ -143,8 +147,12 @@ class OpenAICompatibleClient:
             headers=self._headers(),
             method="POST",
         )
+        # 新主机可直接使用CPA云端配置，无需先部署本机LiteLLM或Clash。
+        open_request = urllib.request.urlopen
+        if self.settings.api_key_env == "CPA_CLOUD_API_KEY":
+            open_request = urllib.request.build_opener(urllib.request.ProxyHandler({})).open
         try:
-            with urllib.request.urlopen(req, timeout=max(1, int(self.settings.timeout_seconds))) as resp:
+            with open_request(req, timeout=max(1, int(self.settings.timeout_seconds))) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
